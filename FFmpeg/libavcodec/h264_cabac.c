@@ -2071,9 +2071,9 @@ decode_intra_mb:
 
     fill_decode_caches(h, sl, mb_type);
 
-    // Only run intra prediction if (!h->avctx->motion_vectors_only)
+    // Change: Only run intra prediction if (!h->avctx->motion_vectors_only)
     if( IS_INTRA( mb_type ) ) {
-        if (!h->avctx->motion_vectors_only) {
+        if (!h->avctx->motion_vectors_only) { // Change: skip intra prediction for motion vector only mode
             int i, pred_mode;
             if( IS_INTRA4x4( mb_type ) ) {
                 if (dct8x8_allowed && get_cabac_noinline(&sl->cabac, &sl->cabac_state[399 + sl->neighbor_transform_size])) {
@@ -2112,7 +2112,7 @@ decode_intra_mb:
             } else {
                 sl->chroma_pred_mode = DC_128_PRED8x8;
             }
-        }
+        } // Change: end skip intra prediction for motion vector only mode
     } else if( partition_count == 4 ) {
         int i, j, sub_partition_count[4], list, ref[2][4];
 
@@ -2332,11 +2332,17 @@ decode_intra_mb:
    if( IS_INTER( mb_type ) ) {
         h->chroma_pred_mode_table[mb_xy] = 0;
         write_back_motion(h, sl, mb_type);
+
+        // Early return for motion-vectors-only mode
+        if (h->avctx->motion_vectors_only) {
+            h->cur_pic.mb_type[mb_xy] = mb_type;
+            return 0;
+        }
    }
 
 
     // Change: Only run residual and pixel code if (!h->avctx->motion_vectors_only)
-    if (!h->avctx->motion_vectors_only) {
+    if (!h->avctx->motion_vectors_only) { // Change: skip residual and pixel code for motion vector only mode
         if( !IS_INTRA16x16( mb_type ) ) {
             cbp  = decode_cabac_mb_cbp_luma(sl);
             if(decode_chroma)
@@ -2503,4 +2509,5 @@ decode_intra_mb:
     }
 
     return 0;
+    // Change: All motion vector code above is always active, only residual and intra prediction code is skipped in motion_vectors_only mode
 }
