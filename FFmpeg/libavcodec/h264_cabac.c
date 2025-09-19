@@ -1926,8 +1926,6 @@ int ff_h264_decode_mb_cabac(const H264Context *h, H264SliceContext *sl)
     const int decode_chroma = sps->chroma_format_idc == 1 || sps->chroma_format_idc == 2;
     const int pixel_shift = h->pixel_shift;
 
-    // Change: Skip residual coefficient handling 
-    if (!h->avctx->motion_vectors_only) { 
     mb_xy = sl->mb_xy = sl->mb_x + sl->mb_y*h->mb_stride;
 
     ff_tlog(h->avctx, "pic:%d mb:%d/%d\n", h->poc.frame_num, sl->mb_x, sl->mb_y);
@@ -1986,13 +1984,6 @@ int ff_h264_decode_mb_cabac(const H264Context *h, H264SliceContext *sl)
             bits+= get_cabac_noinline( &sl->cabac, &sl->cabac_state[27+5] ) << 2;
             bits+= get_cabac_noinline( &sl->cabac, &sl->cabac_state[27+5] ) << 1;
             bits+= get_cabac_noinline( &sl->cabac, &sl->cabac_state[27+5] );
-        // Change: Residual block storage not needed for motion vector extraction
-        if (h->pixel_shift) {
-            STORE_BLOCK(int32_t)
-        } else {
-            STORE_BLOCK(int16_t)
-        }
-    } // end if (!h->avctx->motion_vectors_only)
             if( bits < 8 ){
                 mb_type= bits + 3; /* B_Bi_16x16 through B_L1_L0_16x8 */
             }else if( bits == 13 ){
