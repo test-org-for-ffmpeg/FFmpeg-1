@@ -2071,7 +2071,7 @@ decode_intra_mb:
 
     fill_decode_caches(h, sl, mb_type);
 
-    // Only run intra prediction if (!motion_vectors_only)
+    // Only run intra prediction if (!h->avctx->motion_vectors_only)
     if( IS_INTRA( mb_type ) ) {
         if (!h->avctx->motion_vectors_only) {
             int i, pred_mode;
