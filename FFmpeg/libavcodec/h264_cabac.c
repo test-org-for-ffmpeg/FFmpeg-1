@@ -2333,12 +2333,16 @@ decode_intra_mb:
         h->chroma_pred_mode_table[mb_xy] = 0;
         write_back_motion(h, sl, mb_type);
 
-        // Early return for motion-vectors-only mode
-        if (h->avctx->motion_vectors_only) {
-            h->cur_pic.mb_type[mb_xy] = mb_type;
-            return 0;
-        }
    }
+
+   // Early return for motion vectors only mode AFTER motion vector processing
+    if (h->avctx->motion_vectors_only) {
+        h->cur_pic.mb_type[mb_xy] = mb_type;
+        h->cbp_table[mb_xy] = 0;
+        sl->last_qscale_diff = 0;
+        h->cur_pic.qscale_table[mb_xy] = sl->qscale;
+        return 0;
+    }
 
 
     // Change: Only run residual and pixel code if (!h->avctx->motion_vectors_only)
@@ -2506,8 +2510,18 @@ decode_intra_mb:
 
         h->cur_pic.qscale_table[mb_xy] = sl->qscale;
         write_back_non_zero_count(h, sl);
+    } else {
+        // MOTION VECTORS ONLY MODE - set minimal required state
+        h->cbp_table[mb_xy] = 0;
+        sl->last_qscale_diff = 0;
+        h->cur_pic.qscale_table[mb_xy] = sl->qscale;
+        // Clear non-zero counts
+        fill_rectangle(&sl->non_zero_count_cache[scan8[ 0]], 4, 4, 8, 0, 1);
+        fill_rectangle(&sl->non_zero_count_cache[scan8[16]], 4, 4, 8, 0, 1);
+        fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
     }
 
+    h->cur_pic.mb_type[mb_xy] = mb_type;
     return 0;
     // Change: All motion vector code above is always active, only residual and intra prediction code is skipped in motion_vectors_only mode
 }
