@@ -922,12 +922,6 @@ static int is_avcc_extradata(const uint8_t *buf, int buf_size)
 
 static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *got_frame)
 {
-    if (h->avctx->motion_vectors_only) {
-        // Just set got_frame and return - skip all pixel processing
-        *got_frame = 1;
-        return 0;
-    }
-    
     int ret;
 
     if (((h->avctx->flags & AV_CODEC_FLAG_OUTPUT_CORRUPT) ||
