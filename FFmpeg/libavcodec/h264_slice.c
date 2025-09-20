@@ -2431,6 +2431,10 @@ static int fill_filter_caches(const H264Context *h, H264SliceContext *sl, int mb
 
 static void loop_filter(const H264Context *h, H264SliceContext *sl, int start_x, int end_x)
 {
+    // Skip deblocking filter for motion vectors only mode
+    if (h->avctx->motion_vectors_only)
+        return;
+        
     uint8_t *dest_y, *dest_cb, *dest_cr;
     int linesize, uvlinesize, mb_x, mb_y;
     const int end_mb_y       = sl->mb_y + FRAME_MBAFF(h);
