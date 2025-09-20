@@ -1762,10 +1762,12 @@ decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
         } \
     } while ( coeff_count );
 
-    if (h->pixel_shift) {
-        STORE_BLOCK(int32_t)
-    } else {
-        STORE_BLOCK(int16_t)
+    if (!h->avctx->motion_vectors_only) {
+        if (h->pixel_shift) {
+            STORE_BLOCK(int32_t)
+        } else {
+            STORE_BLOCK(int16_t)
+        }
     }
 #ifdef CABAC_ON_STACK
             sl->cabac.range     = cc.range     ;
