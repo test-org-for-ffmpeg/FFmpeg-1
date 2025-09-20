@@ -1722,52 +1722,56 @@ decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
 #define STORE_BLOCK(type) \
     do { \
         uint8_t *ctx = coeff_abs_level1_ctx[node_ctx] + abs_level_m1_ctx_base; \
- \
         int j= scantable[index[--coeff_count]]; \
- \
         if( get_cabac( CC, ctx ) == 0 ) { \
             node_ctx = coeff_abs_level_transition[0][node_ctx]; \
             if( is_dc ) { \
-                ((type*)block)[j] = get_cabac_bypass_sign( CC, -1); \
+                if (!h->avctx->motion_vectors_only) \
+                    ((type*)block)[j] = get_cabac_bypass_sign( CC, -1); \
+                else \
+                    get_cabac_bypass_sign( CC, -1); \
             }else{ \
-                ((type*)block)[j] = (get_cabac_bypass_sign( CC, -qmul[j]) + 32) >> 6; \
+                if (!h->avctx->motion_vectors_only) \
+                    ((type*)block)[j] = (get_cabac_bypass_sign( CC, -qmul[j]) + 32) >> 6; \
+                else \
+                    get_cabac_bypass_sign( CC, -qmul[j]); \
             } \
         } else { \
             unsigned coeff_abs = 2; \
             ctx = coeff_abs_levelgt1_ctx[is_dc && chroma422][node_ctx] + abs_level_m1_ctx_base; \
             node_ctx = coeff_abs_level_transition[1][node_ctx]; \
-\
             while( coeff_abs < 15 && get_cabac( CC, ctx ) ) { \
                 coeff_abs++; \
             } \
-\
             if( coeff_abs >= 15 ) { \
                 int j = 0; \
                 while (get_cabac_bypass(CC) && j < 16+7) { \
                     j++; \
                 } \
-\
                 coeff_abs=1; \
                 while( j-- ) { \
                     coeff_abs += coeff_abs + get_cabac_bypass( CC ); \
                 } \
                 coeff_abs+= 14U; \
             } \
-\
             if( is_dc ) { \
-                ((type*)block)[j] = get_cabac_bypass_sign( CC, -coeff_abs ); \
+                if (!h->avctx->motion_vectors_only) \
+                    ((type*)block)[j] = get_cabac_bypass_sign( CC, -coeff_abs ); \
+                else \
+                    get_cabac_bypass_sign( CC, -coeff_abs ); \
             }else{ \
-                ((type*)block)[j] = ((int)(get_cabac_bypass_sign( CC, -coeff_abs ) * qmul[j] + 32)) >> 6; \
+                if (!h->avctx->motion_vectors_only) \
+                    ((type*)block)[j] = ((int)(get_cabac_bypass_sign( CC, -coeff_abs ) * qmul[j] + 32)) >> 6; \
+                else \
+                    get_cabac_bypass_sign( CC, -coeff_abs ); \
             } \
         } \
     } while ( coeff_count );
 
-    if (!h->avctx->motion_vectors_only) {
-        if (h->pixel_shift) {
-            STORE_BLOCK(int32_t)
-        } else {
-            STORE_BLOCK(int16_t)
-        }
+    if (h->pixel_shift) {
+        STORE_BLOCK(int32_t)
+    } else {
+        STORE_BLOCK(int16_t)
     }
 #ifdef CABAC_ON_STACK
             sl->cabac.range     = cc.range     ;
@@ -1931,7 +1935,11 @@ int ff_h264_decode_mb_cabac(const H264Context *h, H264SliceContext *sl)
     mb_xy = sl->mb_xy = sl->mb_x + sl->mb_y*h->mb_stride;
 
     ff_tlog(h->avctx, "pic:%d mb:%d/%d\n", h->poc.frame_num, sl->mb_x, sl->mb_y);
-    if (sl->slice_type_nos != AV_PICTURE_TYPE_I) {
+    
+    if (h->avctx->motion_vectors_only)
+        return parse_motion_vectors_only(h, sl);
+
+        if (sl->slice_type_nos != AV_PICTURE_TYPE_I) {
         int skip;
         /* a skipped mb needs the aff flag from the following mb */
         if (FRAME_MBAFF(h) && (sl->mb_y & 1) == 1 && sl->prev_mb_skipped)
