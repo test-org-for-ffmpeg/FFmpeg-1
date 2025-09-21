@@ -81,7 +81,7 @@ av_cold void ff_h264dsp_init(H264DSPContext *c, const int bit_depth,
 
     if (motion_vectors_only) {
         // Set expensive functions to no-ops or NULL
-        c->h264_luma_dc_dequant_idct = NULL;
+        //c->h264_luma_dc_dequant_idct = NULL;
         c->h264_chroma_dc_dequant_idct = NULL;
         c->h264_idct_add = NULL;
         c->h264_idct8_add = NULL;

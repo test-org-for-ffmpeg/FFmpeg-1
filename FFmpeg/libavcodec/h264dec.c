@@ -931,6 +931,7 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
 {
     int ret;
 
+
     if (((h->avctx->flags & AV_CODEC_FLAG_OUTPUT_CORRUPT) ||
          (h->avctx->flags2 & AV_CODEC_FLAG2_SHOW_ALL) ||
          out->recovered)) {

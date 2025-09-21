@@ -2107,12 +2107,12 @@ static av_always_inline void decode_cabac_luma_residual(const H264Context *h, H2
         AV_ZERO128(sl->mb_luma_dc[p]+24);
         
         if (h->avctx->motion_vectors_only && !IS_INTRA(mb_type)) {
-            // Skip residual only for inter blocks
-            decode_cabac_residual_dc_skip(h, sl, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
-        } else {
-            // Process normally for intra blocks  
-            decode_cabac_residual_dc(h, sl, sl->mb_luma_dc[p], ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
-        }
+        // Skip residual only for inter blocks
+        decode_cabac_residual_dc_skip(h, sl, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
+    } else {
+        // Process normally for intra blocks  
+        decode_cabac_residual_dc(h, sl, sl->mb_luma_dc[p], ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
+    }
 
         if( cbp&15 ) {
             qmul = h->ps.pps->dequant4_coeff[p][qscale];
