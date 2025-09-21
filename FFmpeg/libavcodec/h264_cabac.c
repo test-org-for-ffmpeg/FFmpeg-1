@@ -1595,6 +1595,11 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
                                    int max_coeff,
                                    int is_dc, int chroma422)
 {
+    // Early exit optimization for blocks with no coefficients
+    if (max_coeff == 0) {
+        sl->non_zero_count_cache[scan8[n]] = 0;
+        return;
+    }
     static const int significant_coeff_flag_offset[2][14] = {
       { 105+0, 105+15, 105+29, 105+44, 105+47, 402, 484+0, 484+15, 484+29, 660, 528+0, 528+15, 528+29, 718 },
       { 277+0, 277+15, 277+29, 277+44, 277+47, 436, 776+0, 776+15, 776+29, 675, 820+0, 820+15, 820+29, 733 }
@@ -1616,6 +1621,7 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
         9, 9,10,10, 8,11,12,11, 9, 9,10,10, 8,13,13, 9,
         9,10,10, 8,13,13, 9, 9,10,10,14,14,14,14,14 }
     };
+
     static const uint8_t sig_coeff_offset_dc[7] = { 0, 0, 1, 1, 2, 2, 2 };
     static const uint8_t coeff_abs_level1_ctx[8] = { 1, 2, 3, 4, 0, 0, 0, 0 };
     static const uint8_t coeff_abs_levelgt1_ctx[2][8] = {
@@ -1702,19 +1708,19 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
     }
 
     if (coeff_count == 0) {
-        coeff_count = 1; // Avoid assertion failure
-        index[0] = 0;
-    }
+    // No coefficients, nothing more to parse
+    return;
+}
 
-    // Update non-zero count cache
-    if( is_dc ) {
-        if( cat == 3 )
+    // Update non-zero count cache and cbp_table only if required for decoder stability
+    if (is_dc) {
+        if (cat == 3)
             h->cbp_table[sl->mb_xy] |= 0x40 << (n - CHROMA_DC_BLOCK_INDEX);
         else
             h->cbp_table[sl->mb_xy] |= 0x100 << (n - LUMA_DC_BLOCK_INDEX);
         sl->non_zero_count_cache[scan8[n]] = coeff_count;
     } else {
-        if( max_coeff == 64 )
+        if (max_coeff == 64)
             fill_rectangle(&sl->non_zero_count_cache[scan8[n]], 2, 2, 8, coeff_count, 1);
         else
             sl->non_zero_count_cache[scan8[n]] = coeff_count;
@@ -1876,17 +1882,17 @@ decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
     }
     av_assert2(coeff_count > 0);
 
-    if( is_dc ) {
-        if( cat == 3 )
+    if (is_dc) {
+        if (cat == 3)
             h->cbp_table[sl->mb_xy] |= 0x40 << (n - CHROMA_DC_BLOCK_INDEX);
         else
             h->cbp_table[sl->mb_xy] |= 0x100 << (n - LUMA_DC_BLOCK_INDEX);
         sl->non_zero_count_cache[scan8[n]] = coeff_count;
     } else {
-        if( max_coeff == 64 )
+        if (max_coeff == 64)
             fill_rectangle(&sl->non_zero_count_cache[scan8[n]], 2, 2, 8, coeff_count, 1);
         else {
-            av_assert2( cat == 1 || cat ==  2 || cat ==  4 || cat == 7 || cat == 8 || cat == 11 || cat == 12 );
+            av_assert2(cat == 1 || cat == 2 || cat == 4 || cat == 7 || cat == 8 || cat == 11 || cat == 12);
             sl->non_zero_count_cache[scan8[n]] = coeff_count;
         }
     }
@@ -2100,26 +2106,26 @@ static av_always_inline void decode_cabac_luma_residual(const H264Context *h, H2
     int i8x8, i4x4;
     int qscale = p == 0 ? sl->qscale : sl->chroma_qp[p - 1];
     
-    if( IS_INTRA16x16( mb_type ) ) {
-        AV_ZERO128(sl->mb_luma_dc[p]+0);
-        AV_ZERO128(sl->mb_luma_dc[p]+8);
-        AV_ZERO128(sl->mb_luma_dc[p]+16);
-        AV_ZERO128(sl->mb_luma_dc[p]+24);
-        
+    if (IS_INTRA16x16(mb_type)) {
+        if (!h->avctx->motion_vectors_only) {
+            AV_ZERO128(sl->mb_luma_dc[p]+0);
+            AV_ZERO128(sl->mb_luma_dc[p]+8);
+            AV_ZERO128(sl->mb_luma_dc[p]+16);
+            AV_ZERO128(sl->mb_luma_dc[p]+24);
+        }
         if (h->avctx->motion_vectors_only && !IS_INTRA(mb_type)) {
-        // Skip residual only for inter blocks
-        decode_cabac_residual_dc_skip(h, sl, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
-    } else {
-        // Process normally for intra blocks  
-        decode_cabac_residual_dc(h, sl, sl->mb_luma_dc[p], ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
-    }
-
-        if( cbp&15 ) {
+            // Skip residual only for inter blocks
+            decode_cabac_residual_dc_skip(h, sl, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
+        } else {
+            // Process normally for intra blocks
+            decode_cabac_residual_dc(h, sl, sl->mb_luma_dc[p], ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
+        }
+        if (cbp & 15) {
             qmul = h->ps.pps->dequant4_coeff[p][qscale];
-            for( i4x4 = 0; i4x4 < 16; i4x4++ ) {
+            for (i4x4 = 0; i4x4 < 16; i4x4++) {
                 const int index = 16*p + i4x4;
                 if (h->avctx->motion_vectors_only) {
-                    // Parse but don't store AC coefficients  
+                    // Parse but don't store AC coefficients
                     decode_cabac_residual_nondc_skip(h, sl, ctx_cat[1][p], index, scan + 1, 15);
                 } else {
                     decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), ctx_cat[1][p], index, scan + 1, qmul, 15);
@@ -2130,9 +2136,9 @@ static av_always_inline void decode_cabac_luma_residual(const H264Context *h, H2
         }
     } else {
         int cqm = (IS_INTRA( mb_type ) ? 0:3) + p;
-        for( i8x8 = 0; i8x8 < 4; i8x8++ ) {
-            if( cbp & (1<<i8x8) ) {
-                if( IS_8x8DCT(mb_type) ) {
+        for (i8x8 = 0; i8x8 < 4; i8x8++) {
+            if (cbp & (1 << i8x8)) {
+                if (IS_8x8DCT(mb_type)) {
                     const int index = 16*p + 4*i8x8;
                     if (h->avctx->motion_vectors_only) {
                         decode_cabac_residual_nondc_skip(h, sl, ctx_cat[3][p], index, scan8x8, 64);
@@ -2142,7 +2148,7 @@ static av_always_inline void decode_cabac_luma_residual(const H264Context *h, H2
                     }
                 } else {
                     qmul = h->ps.pps->dequant4_coeff[cqm][qscale];
-                    for( i4x4 = 0; i4x4 < 4; i4x4++ ) {
+                    for (i4x4 = 0; i4x4 < 4; i4x4++) {
                         const int index = 16*p + 4*i8x8 + i4x4;
                         if (h->avctx->motion_vectors_only) {
                             decode_cabac_residual_nondc_skip(h, sl, ctx_cat[2][p], index, scan, 16);
