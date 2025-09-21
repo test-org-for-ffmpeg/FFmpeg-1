@@ -1262,7 +1262,7 @@ static av_cold int svq3_decode_init(AVCodecContext *avctx)
     if (!s->cur_pic->f || !s->last_pic->f || !s->next_pic->f)
         return AVERROR(ENOMEM);
 
-    ff_h264dsp_init(&s->h264dsp, 8, 1);
+    ff_h264dsp_init(&s->h264dsp, 8, 1, avctx->motion_vectors_only);
     ff_h264_pred_init(&s->hpc, AV_CODEC_ID_SVQ3, 8, 1);
     ff_videodsp_init(&s->vdsp, 8);
 

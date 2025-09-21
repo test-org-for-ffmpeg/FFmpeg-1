@@ -64,7 +64,7 @@
 #undef BIT_DEPTH
 
 av_cold void ff_h264dsp_init(H264DSPContext *c, const int bit_depth,
-                             const int chroma_format_idc)
+                             const int chroma_format_idc, const int motion_vectors_only)
 {
 #undef FUNC
 #define FUNC(a, depth) a ## _ ## depth ## _c
@@ -77,6 +77,16 @@ av_cold void ff_h264dsp_init(H264DSPContext *c, const int bit_depth,
         ADDPX_DSP(16);
     } else {
         ADDPX_DSP(8);
+    }
+
+    if (motion_vectors_only) {
+        // Set expensive functions to no-ops or NULL
+        c->h264_luma_dc_dequant_idct = NULL;
+        c->h264_chroma_dc_dequant_idct = NULL;
+        c->h264_idct_add = NULL;
+        c->h264_idct8_add = NULL;
+        // Skip loop filters, weighting, etc.
+        return;
     }
 
 #define H264_DSP(depth) \
