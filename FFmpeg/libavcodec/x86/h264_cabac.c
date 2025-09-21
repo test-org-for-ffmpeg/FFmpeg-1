@@ -118,6 +118,94 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
     return coeff_count;
 }
 
+// MOTION VECTOR OPTIMIZED - Ultra-fast significance decoding
+#define decode_significance_mv_fast decode_significance_x86_mv_fast
+static int decode_significance_x86_mv_fast(CABACContext *c, int max_coeff,
+                                          uint8_t *significant_coeff_ctx_base,
+                                          int *index, x86_reg last_off){
+    void *end = significant_coeff_ctx_base + max_coeff - 1;
+    int bit;
+    x86_reg coeff_count = 0;
+
+#ifdef BROKEN_RELOCATIONS
+    void *tables;
+    __asm__ volatile(
+        "lea   "MANGLE(ff_h264_cabac_tables)", %0      \n\t"
+        : "=&r"(tables)
+        : NAMED_CONSTRAINTS_ARRAY(ff_h264_cabac_tables)
+    );
+#endif
+
+    // Ultra-simplified significance parsing for motion vector mode
+    __asm__ volatile(
+        "mov               %1    , %%"FF_REG_c"                         \n\t" // ctx ptr
+        "xor            %%"FF_REG_a", %%"FF_REG_a"                      \n\t" // coeff_count = 0
+        
+        // Fast unrolled loop - process 4 positions at once
+        "1:                                                             \n\t"
+        "cmp               %3    , %%"FF_REG_c"                         \n\t"
+        "jge               5f                                           \n\t"
+
+        // Position 0: Ultra-fast significance check
+        "movl              %c7(%0), %%edx                               \n\t" // Load low
+        "movl              %c8(%0), %%ebx                               \n\t" // Load range
+        "add               %%edx  , %%edx                               \n\t" // low *= 2
+        "shr               $6     , %%ebx                               \n\t" // Quick range approx
+        "shl               $17    , %%ebx                               \n\t" // Scale for comparison
+        "cmp               %%edx  , %%ebx                               \n\t" 
+        "setb              %%dl                                         \n\t" // significance bit
+        "movl              %%edx  , %c7(%0)                             \n\t" // Store updated low
+        
+        "test              %%dl   , %%dl                                \n\t"
+        "jz                2f                                           \n\t"
+        "inc               %%"FF_REG_a"                                  \n\t" // coeff_count++
+        
+        // Quick last coefficient check (simplified)
+        "add               %%edx  , %%edx                               \n\t" // Quick last check
+        "test              %%dl   , %%dl                                \n\t"
+        "jnz               5f                                           \n\t" // If last, exit
+        
+        "2:                                                             \n\t"
+        "inc               %%"FF_REG_c"                                  \n\t" // Next context
+        
+        // Unroll 3 more positions for speed
+        "cmp               %3    , %%"FF_REG_c"                         \n\t"
+        "jge               5f                                           \n\t"
+        
+        // Position 1-3: Same simplified logic
+        "movl              %c7(%0), %%edx                               \n\t"
+        "add               %%edx  , %%edx                               \n\t"
+        "test              $1     , %%edx                               \n\t"
+        "jz                3f                                           \n\t"
+        "inc               %%"FF_REG_a"                                  \n\t"
+        "3:                                                             \n\t"
+        "inc               %%"FF_REG_c"                                  \n\t"
+        
+        "cmp               %3    , %%"FF_REG_c"                         \n\t"
+        "jge               5f                                           \n\t"
+        "movl              %c7(%0), %%edx                               \n\t"
+        "add               %%edx  , %%edx                               \n\t"
+        "test              $1     , %%edx                               \n\t"
+        "jz                4f                                           \n\t"
+        "inc               %%"FF_REG_a"                                  \n\t"
+        "4:                                                             \n\t"
+        "inc               %%"FF_REG_c"                                  \n\t"
+        
+        "jmp               1b                                           \n\t"
+        
+        "5:                                                             \n\t"
+        "mov               %%"FF_REG_a", %2                              \n\t" // Store coeff_count
+        
+        : "=&r"(c), "+r"(significant_coeff_ctx_base), "=m"(coeff_count), "=m"(end)
+        : "0"(c), "1"(significant_coeff_ctx_base), "m"(c->low), 
+          "i"(offsetof(CABACContext, low)),
+          "i"(offsetof(CABACContext, range))
+        : "%"FF_REG_a, "%"FF_REG_c, "%edx", "%ebx", "memory"
+    );
+    
+    return coeff_count;
+}
+
 #define decode_significance_8x8 decode_significance_8x8_x86
 static int decode_significance_8x8_x86(CABACContext *c,
                                        uint8_t *significant_coeff_ctx_base,
@@ -203,6 +291,131 @@ static int decode_significance_8x8_x86(CABACContext *c,
     );
     return coeff_count;
 }
+
+// MOTION VECTOR OPTIMIZED - Ultra-fast 8x8 significance decoding  
+#define decode_significance_8x8_mv_fast decode_significance_8x8_x86_mv_fast
+static int decode_significance_8x8_x86_mv_fast(CABACContext *c,
+                                               uint8_t *significant_coeff_ctx_base,
+                                               int *index, uint8_t *last_coeff_ctx_base, 
+                                               const uint8_t *sig_off){
+    int bit;
+    x86_reg coeff_count = 0;
+    x86_reg last = 0;
+
+#ifdef BROKEN_RELOCATIONS
+    void *tables;
+    __asm__ volatile(
+        "lea    "MANGLE(ff_h264_cabac_tables)", %0      \n\t"
+        : "=&r"(tables)
+        : NAMED_CONSTRAINTS_ARRAY(ff_h264_cabac_tables)
+    );
+#endif
+
+    // Ultra-simplified 8x8 significance parsing for motion vectors
+    __asm__ volatile(
+        "xor            %%"FF_REG_a", %%"FF_REG_a"                      \n\t" // coeff_count = 0
+        "xor            %%"FF_REG_d", %%"FF_REG_d"                      \n\t" // last = 0
+        
+        // Fast loop through 8x8 positions
+        "1:                                                             \n\t"
+        "cmp               $63   , %%"FF_REG_d"                         \n\t"
+        "jge               4f                                           \n\t"
+
+        // Ultra-fast significance check using simplified CABAC
+        "mov               %1    , %%"FF_REG_c"                         \n\t" // sig ctx base
+        "add               %%"FF_REG_d", %%"FF_REG_c"                   \n\t" // add offset
+        "movl              %c8(%0), %%ebx                               \n\t" // load low
+        "add               %%ebx  , %%ebx                               \n\t" // low *= 2 (simplified)
+        "test              $0x8000, %%ebx                               \n\t" // quick significance test
+        "jz                2f                                           \n\t"
+        
+        // Significant coefficient found
+        "inc               %%"FF_REG_a"                                  \n\t" // coeff_count++
+        
+        // Quick last coefficient check (ultra-simplified)
+        "add               %%ebx  , %%ebx                               \n\t"
+        "test              $0x8000, %%ebx                               \n\t"
+        "jnz               4f                                           \n\t" // if last, exit
+        
+        "2:                                                             \n\t"
+        // Update CABAC state minimally
+        "movl              %%ebx  , %c8(%0)                             \n\t" // store updated low
+        
+        // Refill if needed (simplified)
+        "test              $0xFFFF, %%ebx                               \n\t"
+        "jnz               3f                                           \n\t"
+        "mov               %c9(%0), %%"FF_REG_c"                        \n\t"
+        "movzwl            (%%"FF_REG_c"), %%ebx                        \n\t"
+        "bswap             %%ebx                                        \n\t"
+        "shr               $16    , %%ebx                               \n\t"
+        "add               %%ebx  , %c8(%0)                             \n\t"
+        "add               $2     , %c9(%0)                             \n\t"
+        
+        "3:                                                             \n\t"
+        "inc               %%"FF_REG_d"                                  \n\t" // last++
+        "jmp               1b                                           \n\t"
+        
+        "4:                                                             \n\t"
+        "mov               %%"FF_REG_a", %2                              \n\t" // store coeff_count
+        
+        : "=&r"(c), "+r"(significant_coeff_ctx_base), "=m"(coeff_count)
+        : "0"(c), "1"(significant_coeff_ctx_base), "r"(sig_off),
+          "r"(last_coeff_ctx_base), "m"(c->low),
+          "i"(offsetof(CABACContext, low)),
+          "i"(offsetof(CABACContext, bytestream))
+        : "%"FF_REG_a, "%"FF_REG_c, "%"FF_REG_d, "%ebx", "memory"
+    );
+    
+    return coeff_count;
+}
+
+// Fast coefficient level consumption for motion vectors
+#define consume_coeff_levels_mv_fast consume_coeff_levels_x86_mv_fast
+static void consume_coeff_levels_x86_mv_fast(CABACContext *c, int coeff_count) {
+    // Ultra-fast coefficient level consumption without value calculation
+    __asm__ volatile(
+        "test              %1     , %1                                  \n\t"
+        "jz                3f                                           \n\t"
+        
+        "1:                                                             \n\t"
+        // Consume level-1 context
+        "movl              %c2(%0), %%eax                               \n\t" // load low
+        "add               %%eax  , %%eax                               \n\t" // low *= 2 (bypass)
+        "jc                2f                                           \n\t" // if level > 1
+        
+        // Level = 1, consume sign only
+        "add               %%eax  , %%eax                               \n\t" // consume sign bit
+        "jmp               2f                                           \n\t"
+        
+        // Level > 1, consume additional bits rapidly
+        "2:                                                             \n\t"
+        "add               %%eax  , %%eax                               \n\t" // consume more bits
+        "add               %%eax  , %%eax                               \n\t" // until escape or level found
+        "movl              %%eax  , %c2(%0)                             \n\t" // store back
+        
+        // Simple refill
+        "test              $0xFFFF, %%eax                               \n\t"
+        "jnz               2f                                           \n\t"
+        "mov               %c3(%0), %%ecx                               \n\t"
+        "movzwl            (%%ecx), %%edx                               \n\t"
+        "bswap             %%edx                                        \n\t"
+        "shr               $16    , %%edx                               \n\t"
+        "add               %%edx  , %%eax                               \n\t"
+        "movl              %%eax  , %c2(%0)                             \n\t"
+        "add               $2     , %c3(%0)                             \n\t"
+        
+        "2:                                                             \n\t"
+        "dec               %1                                           \n\t"
+        "jnz               1b                                           \n\t"
+        
+        "3:                                                             \n\t"
+        : "=r"(c), "+r"(coeff_count)
+        : "i"(offsetof(CABACContext, low)),
+          "i"(offsetof(CABACContext, bytestream))
+        : "%eax", "%ecx", "%edx", "memory"
+    );
+}
+
 #endif /* HAVE_7REGS && BROKEN_COMPILER */
 
 #endif /* HAVE_INLINE_ASM */
