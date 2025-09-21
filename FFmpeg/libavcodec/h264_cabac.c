@@ -2729,7 +2729,11 @@ decode_intra_mb:
                     qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
                     for( i = 0; i < 4; i++ ) {
                         const int index = 16 + 16 * c + i;
-                        decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
+                        if (h->avctx->motion_vectors_only) {
+                            decode_cabac_residual_nondc_skip(h, sl, 4, index, scan + 1, 15);
+                        } else {
+                            decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
+                        }
                     }
                 }
             } else {
