@@ -2112,7 +2112,7 @@ static av_always_inline void decode_cabac_luma_residual(const H264Context *h, H2
             AV_ZERO128(sl->mb_luma_dc[p]+8);
             AV_ZERO128(sl->mb_luma_dc[p]+16);
             AV_ZERO128(sl->mb_luma_dc[p]+24);
-        }
+        }      
         if (h->avctx->motion_vectors_only && !IS_INTRA(mb_type)) {
             // Skip residual only for inter blocks
             decode_cabac_residual_dc_skip(h, sl, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
@@ -2644,6 +2644,27 @@ decode_intra_mb:
     h->cur_pic.mb_type[mb_xy] = mb_type;
 
     if( cbp || IS_INTRA16x16( mb_type ) ) {
+        // CHECK MOTION VECTORS ONLY FLAG HERE
+    if (h->avctx->motion_vectors_only) {
+        // Skip ALL residual processing - no quantization, no coefficients
+        // Just clear all coefficient arrays and skip quantization step
+        fill_rectangle(&sl->non_zero_count_cache[scan8[0]], 4, 4, 8, 0, 1);
+        if (decode_chroma) {
+            fill_rectangle(&sl->non_zero_count_cache[scan8[16]], 4, 4, 8, 0, 1);
+            fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
+        }
+        sl->last_qscale_diff = 0;  // No quantization changes
+        
+        // Skip parsing CBF flags but maintain CABAC state by advancing past them
+        // This maintains bitstream synchronization without processing
+        if (!IS_INTRA16x16(mb_type)) {
+            // Skip luma CBP parsing but maintain CABAC context
+            decode_cabac_mb_cbp_luma(sl);
+            if (decode_chroma) {
+                decode_cabac_mb_cbp_chroma(sl);  
+            }
+        }
+    } else {
         const uint8_t *scan, *scan8x8;
         const uint32_t *qmul;
 
