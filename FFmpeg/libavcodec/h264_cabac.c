@@ -1663,18 +1663,17 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
     if( !is_dc && max_coeff == 64 ) {
         const uint8_t *sig_off = significant_coeff_flag_offset_8x8[MB_FIELD(sl)];
         for(last= 0; last < 63; last++) {
-            uint8_t *sig_ctx = significant_coeff_ctx_base + sig_off[last];
-            if( get_cabac( CC, sig_ctx )) {
-                uint8_t *last_ctx = last_coeff_ctx_base + ff_h264_last_coeff_flag_offset_8x8[last];
-                index[coeff_count++] = last;
-                if( get_cabac( CC, last_ctx ) ) {
+            // Skip intermediate pointer variables - calculate directly in function call
+            if( get_cabac( CC, significant_coeff_ctx_base + sig_off[last] )) {
+                coeff_count++; // Skip storing index
+                if( get_cabac( CC, last_coeff_ctx_base + ff_h264_last_coeff_flag_offset_8x8[last] ) ) {
                     last= max_coeff;
                     break;
                 }
             }
         }
         if( last == max_coeff -1 ) {
-            index[coeff_count++] = last;
+            coeff_count++;
         }
     } else {
         if (is_dc && chroma422) {
@@ -1682,7 +1681,7 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
                 uint8_t *sig_ctx = significant_coeff_ctx_base + sig_coeff_offset_dc[last];
                 if( get_cabac( CC, sig_ctx )) {
                     uint8_t *last_ctx = last_coeff_ctx_base + sig_coeff_offset_dc[last];
-                    index[coeff_count++] = last;
+                    coeff_count++;
                     if( get_cabac( CC, last_ctx ) ) {
                         last= max_coeff;
                         break;
@@ -1691,11 +1690,9 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
             }
         } else {
             for(last= 0; last < max_coeff - 1; last++) {
-                uint8_t *sig_ctx = significant_coeff_ctx_base + last;
-                if( get_cabac( CC, sig_ctx )) {
-                    uint8_t *last_ctx = last_coeff_ctx_base + last;
-                    index[coeff_count++] = last;
-                    if( get_cabac( CC, last_ctx ) ) {
+                if( get_cabac( CC, significant_coeff_ctx_base + last )) {
+                    coeff_count++;
+                    if( get_cabac( CC, last_coeff_ctx_base + last ) ) {
                         last= max_coeff;
                         break;
                     }
@@ -1703,7 +1700,7 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
             }
         }
         if( last == max_coeff -1 ) {
-            index[coeff_count++] = last;
+            coeff_count++;
         }
     }
 
