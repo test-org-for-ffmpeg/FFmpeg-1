@@ -490,8 +490,14 @@ static int h264_frame_start(H264Context *h)
         return AVERROR_BUG;
     }
 
+
     release_unused_pictures(h, 1);
     h->cur_pic_ptr = NULL;
+
+    pic = h->cur_pic_ptr;
+    if (h->avctx->motion_vectors_only && pic) {
+        pic->f->data[0] = pic->f->data[1] = pic->f->data[2] = NULL;
+    }
 
     i = find_unused_picture(h);
     if (i < 0) {

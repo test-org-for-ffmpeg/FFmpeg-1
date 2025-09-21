@@ -64,6 +64,13 @@ int avpriv_h264_has_num_reorder_frames(AVCodecContext *avctx)
     return h && h->ps.sps ? h->ps.sps->num_reorder_frames : 0;
 }
 
+void ff_h264_export_frame_side_data(H264Context *h, H264Picture *pic, int insert)
+{
+    if (!pic || !pic->f)
+        return;
+    av_frame_get_side_data(pic->f, AV_FRAME_DATA_MOTION_VECTORS);
+}
+
 static void h264_er_decode_mb(void *opaque, int ref, int mv_dir, int mv_type,
                               int (*mv)[2][4][2],
                               int mb_x, int mb_y, int mb_intra, int mb_skipped)
@@ -1018,12 +1025,15 @@ static int send_next_delayed_frame(H264Context *h, AVFrame *dst_frame,
 
 static int h264_decode_frame(AVCodecContext *avctx, AVFrame *pict,
                              int *got_frame, AVPacket *avpkt)
+
 {
     const uint8_t *buf = avpkt->data;
     int buf_size       = avpkt->size;
     H264Context *h     = avctx->priv_data;
     int buf_index;
     int ret;
+
+
 
     h->flags = avctx->flags;
     h->setup_finished = 0;
