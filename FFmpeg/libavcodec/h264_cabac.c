@@ -1711,16 +1711,8 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
 
     // Update non-zero count cache and cbp_table only if required for decoder stability
     if (is_dc) {
-        if (cat == 3)
-            h->cbp_table[sl->mb_xy] |= 0x40 << (n - CHROMA_DC_BLOCK_INDEX);
-        else
-            h->cbp_table[sl->mb_xy] |= 0x100 << (n - LUMA_DC_BLOCK_INDEX);
-        sl->non_zero_count_cache[scan8[n]] = coeff_count;
-    } else {
-        if (max_coeff == 64)
-            fill_rectangle(&sl->non_zero_count_cache[scan8[n]], 2, 2, 8, coeff_count, 1);
-        else
-            sl->non_zero_count_cache[scan8[n]] = coeff_count;
+        // Simplified CBP update - use constant instead of bit shifting
+        h->cbp_table[sl->mb_xy] |= (cat == 3) ? 0x40 : 0x100;
     }
 
     // Parse coefficient levels but DON'T STORE - maintains CABAC context
