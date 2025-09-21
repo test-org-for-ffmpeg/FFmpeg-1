@@ -2063,11 +2063,7 @@ static av_always_inline void decode_cabac_residual_nondc_skip(const H264Context 
 {
     /* read coded block flag - MUST parse this to maintain CABAC context */
     if( (cat != 5 || CHROMA444(h)) && get_cabac( &sl->cabac, &sl->cabac_state[get_cabac_cbf_ctx(sl, cat, n, max_coeff, 0)]) == 0) {
-        if( max_coeff == 64 ) {
-            fill_rectangle(&sl->non_zero_count_cache[scan8[n]], 2, 2, 8, 0, 1);
-        } else {
-            sl->non_zero_count_cache[scan8[n]] = 0;
-        }
+        sl->non_zero_count_cache[scan8[n]] = 0; 
         return;
     }
     
@@ -2092,7 +2088,7 @@ static av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h,
     decode_cabac_residual_internal_motion_vectors_only(h, sl, NULL, cat, n, scantable, NULL, max_coeff, 1, 0);
     
     // Update non-zero count cache for DC
-    sl->non_zero_count_cache[scan8[n]] = 1; // Fake that we found coefficients
+    sl->non_zero_count_cache[scan8[n]] = 0; 
 }
 
 
@@ -2751,6 +2747,16 @@ decode_intra_mb:
 
     h->cur_pic.qscale_table[mb_xy] = sl->qscale;
     write_back_non_zero_count(h, sl);
+
+    // In ff_h264_decode_mb_cabac, at the very end, just before return 0:
+    if (h->avctx->motion_vectors_only) {
+        // Skip expensive memory operations that happen after this function
+        // Zero out coefficient storage to save memory bandwidth
+        if (sl->mb && h->pixel_shift) {
+            // Fast zero-out of coefficient memory 
+            memset(sl->mb, 0, 24 * 16 * sizeof(int16_t) << h->pixel_shift);
+        }
+    }
 
     return 0;
 }
