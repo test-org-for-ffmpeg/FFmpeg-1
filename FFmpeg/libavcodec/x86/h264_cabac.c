@@ -284,26 +284,7 @@ static int decode_significance_8x8_x86_mv_ultra(CABACContext *c,
     return coeff_count;
 }
 
-// NEW: Ultra-fast coefficient level consumption for motion vectors
-#define consume_coefficient_levels_mv_ultra consume_coefficient_levels_x86_mv_ultra
-static void consume_coefficient_levels_x86_mv_ultra(CABACContext *c, int coeff_count) {
-    // Just consume CABAC symbols without calculating values
-    if (coeff_count > 0) {
-        __asm__ volatile(
-            "1:                                                         \n\t"
-            "movl              %c2(%0), %%eax                           \n\t"
-            "add               %%eax  , %%eax                           \n\t"
-            "add               %%eax  , %%eax                           \n\t"
-            "add               %%eax  , %%eax                           \n\t"
-            "movl              %%eax  , %c2(%0)                         \n\t"
-            "dec               %1                                       \n\t"
-            "jnz               1b                                       \n\t"
-            : "=r"(c), "+r"(coeff_count)
-            : "i"(offsetof(CABACContext, low))
-            : "%eax", "memory"
-        );
-    }
-}
+
 
 #endif /* HAVE_7REGS && BROKEN_COMPILER */
 

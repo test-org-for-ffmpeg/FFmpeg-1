@@ -1589,6 +1589,28 @@ static av_always_inline int get_cabac_cbf_ctx(H264SliceContext *sl,
     return base_ctx[cat] + ctx;
 }
 
+// Add this function to your h264_cabac.c file:
+static av_always_inline int consume_coefficient_levels_mv_ultra(CABACContext *c, uint8_t *ctx_base, int max_count)
+{
+    int count = 0;
+    uint8_t *ctx = ctx_base;
+    
+    // Unroll the loop for better performance
+    while (count < max_count) {
+        if (!get_cabac(c, ctx)) break;
+        count++;
+        if (count >= max_count) break;
+        
+        // Process 2 symbols at once when possible
+        if (count < max_count - 1) {
+            if (!get_cabac(c, ctx)) break;
+            count++;
+        }
+    }
+    return count;
+}
+
+
 static av_always_inline void
 decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264SliceContext *sl,
                                    int16_t *block,  // Unused, will be NULL

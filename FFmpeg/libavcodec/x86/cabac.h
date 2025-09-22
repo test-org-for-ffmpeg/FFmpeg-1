@@ -219,7 +219,7 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
 #define get_cabac_inline_mv_ultra get_cabac_inline_x86_mv_ultra
 static av_always_inline int get_cabac_inline_x86_mv_ultra(CABACContext *c, uint8_t *const state)
 {
-    // Use original function but skip expensive state table update at the end
+        // Use original function but skip expensive state table update at the end
     int bit = get_cabac_inline_x86(c, state);
     
     // Skip the expensive state update that original function does
@@ -227,6 +227,7 @@ static av_always_inline int get_cabac_inline_x86_mv_ultra(CABACContext *c, uint8
     
     return bit;
 }
+
 #endif /* HAVE_7REGS && !BROKEN_COMPILER */
 
 #if !BROKEN_COMPILER
