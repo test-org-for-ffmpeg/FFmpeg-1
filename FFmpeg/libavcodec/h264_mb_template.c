@@ -356,10 +356,13 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
                       h->h264dsp.biweight_h264_pixels_tab);
         }
 
-        for (p = 0; p < plane_count; p++)
-            hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE, transform_bypass,
-                                   PIXEL_SHIFT, block_offset, linesize,
-                                   dest[p], p);
+        if (!h->avctx->motion_vectors_only) {
+            for (p = 0; p < plane_count; p++)
+                hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE, transform_bypass,
+                                    PIXEL_SHIFT, block_offset, linesize,
+                                    dest[p], p);
+        }
+
     }
 }
 
