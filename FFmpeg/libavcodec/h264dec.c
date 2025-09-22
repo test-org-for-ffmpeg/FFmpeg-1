@@ -937,7 +937,7 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
         if (ret < 0)
             return ret;
             
-        // Extract motion vectors
+        // KEEP THIS - Essential for motion vector extraction
         if (CONFIG_MPEGVIDEODEC) {
             ff_print_debug_info2(h->avctx, dst,
                                 out->mb_type, out->qscale_table, out->motion_val,
@@ -947,6 +947,7 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
         *got_frame = 1;
         return 0;
     }
+
 
     if (((h->avctx->flags & AV_CODEC_FLAG_OUTPUT_CORRUPT) ||
          (h->avctx->flags2 & AV_CODEC_FLAG2_SHOW_ALL) ||
@@ -987,13 +988,7 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
 
         *got_frame = 1;
 
-        if (CONFIG_MPEGVIDEODEC) {
-            ff_print_debug_info2(h->avctx, dst,
-                                 out->mb_type,
-                                 out->qscale_table,
-                                 out->motion_val,
-                                 out->mb_width, out->mb_height, out->mb_stride, 1);
-        }
+
     }
 
     return 0;
