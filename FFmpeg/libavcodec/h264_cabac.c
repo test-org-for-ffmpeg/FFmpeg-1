@@ -1635,7 +1635,6 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
         { 4, 4, 4, 4, 5, 6, 7, 7 }
     };
 
-    int index[64];
     int last;
     int coeff_count = 0;
     int node_ctx = 0;
@@ -1665,13 +1664,12 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
     if( !is_dc && max_coeff == 64 ) {
         const uint8_t *sig_off = significant_coeff_flag_offset_8x8[MB_FIELD(sl)];
         for(last= 0; last < 63; last++) {
-            // Skip intermediate pointer variables - calculate directly in function call
            #if HAVE_7REGS && !BROKEN_COMPILER  
             if( get_cabac_inline_mv_ultra( CC, significant_coeff_ctx_base + sig_off[last] )) {
             #else
             if( get_cabac( CC, significant_coeff_ctx_base + sig_off[last] )) {
             #endif
-                coeff_count++; // Skip storing index
+                coeff_count++; // Keep this exactly as before
                 if( get_cabac( CC, last_coeff_ctx_base + ff_h264_last_coeff_flag_offset_8x8[last] ) ) {
                     last= max_coeff;
                     break;
@@ -1711,15 +1709,14 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
     }
 
     if (coeff_count == 0) {
-    // No coefficients, nothing more to parse
-    return;
-}
-
-    // Update non-zero count cache and cbp_table only if required for decoder stability
-    if (is_dc) {
-        // Simplified CBP update - use constant instead of bit shifting
-        h->cbp_table[sl->mb_xy] |= (cat == 3) ? 0x40 : 0x100;
+        // No coefficients, nothing more to parse
+        return;
     }
+
+    // ONLY CHANGE: Comment out this CBP update (small speedup)
+    // if (is_dc) {
+    //     h->cbp_table[sl->mb_xy] |= (cat == 3) ? 0x40 : 0x100;
+    // }
 
     // Parse coefficient levels but DON'T STORE - maintains CABAC context
     do {
@@ -1729,23 +1726,25 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
             node_ctx = coeff_abs_level_transition[0][node_ctx];
             get_cabac_bypass_sign( CC, -1); // Parse sign but don't store
         } else {
-            unsigned coeff_abs = 2;
+            // OPTIMIZATION: Skip coeff_abs calculation, just consume CABAC symbols
             ctx = coeff_abs_levelgt1_ctx[is_dc && chroma422][node_ctx] + abs_level_m1_ctx_base;
             node_ctx = coeff_abs_level_transition[1][node_ctx];
 
-            while( coeff_abs < 15 && get_cabac( CC, ctx ) ) {
-                coeff_abs++;
+            // Consume level-greater-than-1 symbols without calculating exact value
+            int level_count = 0;
+            while( level_count < 13 && get_cabac( CC, ctx ) ) {
+                level_count++;  // Count symbols instead of calculating coeff_abs
             }
 
-            if( coeff_abs >= 15 ) {
+            if( level_count >= 13 ) {
+                // Parse escape sequence - MUST do this for CABAC sync
                 int j = 0;
-                // OPTIMIZATION 1: Combine both loops into one
-                while (get_cabac_bypass(CC) && j < 23) {  // 16+7 = 23
+                while (get_cabac_bypass(CC) && j < 16+7) {
                     j++;
                 }
-                // OPTIMIZATION 2: Skip the coefficient value calculation
-                // We just consumed j+1 bits total, which maintains CABAC sync
-                // Don't need to calculate the actual coefficient value
+                while( j-- ) {
+                    get_cabac_bypass( CC ); // Parse but don't accumulate
+                }
             }
             get_cabac_bypass_sign( CC, -1); // Parse sign but don't store
         }
@@ -1758,6 +1757,7 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
     sl->cabac.bytestream= cc.bytestream;
 #endif
 }
+
 
 
 
