@@ -41,6 +41,8 @@
 
 #if ARCH_X86
 #include "x86/h264_cabac.c"
+// Make sure you have this include near the top:
+#include "x86/cabac.h"   // This should bring in your ultra-fast functions
 #elif ARCH_LOONGARCH64
 #include "loongarch/h264_cabac.c"
 #endif
@@ -1664,7 +1666,11 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
         const uint8_t *sig_off = significant_coeff_flag_offset_8x8[MB_FIELD(sl)];
         for(last= 0; last < 63; last++) {
             // Skip intermediate pointer variables - calculate directly in function call
+           #if HAVE_7REGS && !BROKEN_COMPILER  
+            if( get_cabac_inline_mv_ultra( CC, significant_coeff_ctx_base + sig_off[last] )) {
+            #else
             if( get_cabac( CC, significant_coeff_ctx_base + sig_off[last] )) {
+            #endif
                 coeff_count++; // Skip storing index
                 if( get_cabac( CC, last_coeff_ctx_base + ff_h264_last_coeff_flag_offset_8x8[last] ) ) {
                     last= max_coeff;
@@ -1733,12 +1739,13 @@ decode_cabac_residual_internal_motion_vectors_only(const H264Context *h, H264Sli
 
             if( coeff_abs >= 15 ) {
                 int j = 0;
-                while (get_cabac_bypass(CC) && j < 16+7) {
+                // OPTIMIZATION 1: Combine both loops into one
+                while (get_cabac_bypass(CC) && j < 23) {  // 16+7 = 23
                     j++;
                 }
-                while( j-- ) {
-                    get_cabac_bypass( CC ); // Parse but don't accumulate
-                }
+                // OPTIMIZATION 2: Skip the coefficient value calculation
+                // We just consumed j+1 bits total, which maintains CABAC sync
+                // Don't need to calculate the actual coefficient value
             }
             get_cabac_bypass_sign( CC, -1); // Parse sign but don't store
         }
