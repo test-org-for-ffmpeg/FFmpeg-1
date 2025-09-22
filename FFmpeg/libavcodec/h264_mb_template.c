@@ -154,20 +154,24 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest_y, dest_cb, dest_cr, linesize,
                                uvlinesize, 1, 0, SIMPLE, PIXEL_SHIFT);
+            if (!h->avctx->motion_vectors_only) {
 
             if (SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
                 h->hpc.pred8x8[sl->chroma_pred_mode](dest_cb, uvlinesize);
                 h->hpc.pred8x8[sl->chroma_pred_mode](dest_cr, uvlinesize);
             }
+        
 
             hl_decode_mb_predict_luma(h, sl, mb_type, SIMPLE,
                                       transform_bypass, PIXEL_SHIFT,
                                       block_offset, linesize, dest_y, 0);
+            }
 
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest_y, dest_cb, dest_cr, linesize,
                                uvlinesize, 0, 0, SIMPLE, PIXEL_SHIFT);
         } else {
+            if (!h->avctx->motion_vectors_only) {
             if (chroma422) {
                 FUNC(hl_motion_422)(h, sl, dest_y, dest_cb, dest_cr,
                               h->h264qpel.put_h264_qpel_pixels_tab,
@@ -186,9 +190,12 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                               h->h264dsp.biweight_h264_pixels_tab);
             }
         }
-
+        
+        if (!h->avctx->motion_vectors_only) {
         hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE, transform_bypass,
                                PIXEL_SHIFT, block_offset, linesize, dest_y, 0);
+
+        }
 
         if ((SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) &&
             (sl->cbp & 0x30)) {
@@ -233,15 +240,19 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                     qp[0] = sl->chroma_qp[0];
                     qp[1] = sl->chroma_qp[1];
                 }
-                if (sl->non_zero_count_cache[scan8[CHROMA_DC_BLOCK_INDEX + 0]])
-                    h->h264dsp.h264_chroma_dc_dequant_idct(sl->mb + (16 * 16 * 1 << PIXEL_SHIFT),
-                                                           h->ps.pps->dequant4_coeff[IS_INTRA(mb_type) ? 1 : 4][qp[0]][0]);
-                if (sl->non_zero_count_cache[scan8[CHROMA_DC_BLOCK_INDEX + 1]])
-                    h->h264dsp.h264_chroma_dc_dequant_idct(sl->mb + (16 * 16 * 2 << PIXEL_SHIFT),
-                                                           h->ps.pps->dequant4_coeff[IS_INTRA(mb_type) ? 2 : 5][qp[1]][0]);
-                h->h264dsp.h264_idct_add8(dest, block_offset,
-                                          sl->mb, uvlinesize,
-                                          sl->non_zero_count_cache);
+
+                if (!h->avctx->motion_vectors_only) {
+                    if (sl->non_zero_count_cache[scan8[CHROMA_DC_BLOCK_INDEX + 0]])
+                        h->h264dsp.h264_chroma_dc_dequant_idct(sl->mb + (16 * 16 * 1 << PIXEL_SHIFT),
+                                                            h->ps.pps->dequant4_coeff[IS_INTRA(mb_type) ? 1 : 4][qp[0]][0]);
+                    if (sl->non_zero_count_cache[scan8[CHROMA_DC_BLOCK_INDEX + 1]])
+                        h->h264dsp.h264_chroma_dc_dequant_idct(sl->mb + (16 * 16 * 2 << PIXEL_SHIFT),
+                                                            h->ps.pps->dequant4_coeff[IS_INTRA(mb_type) ? 2 : 5][qp[1]][0]);
+                    h->h264dsp.h264_idct_add8(dest, block_offset,
+                                            sl->mb, uvlinesize,
+                                            sl->non_zero_count_cache);
+                    }
+                }
             }
         }
     }
