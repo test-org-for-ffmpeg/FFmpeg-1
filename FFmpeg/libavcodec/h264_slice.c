@@ -581,7 +581,7 @@ static int h264_frame_start(H264Context *h)
 
     h->mb_aff_frame = h->ps.sps->mb_aff && (h->picture_structure == PICT_FRAME);
 
-    if (h->sei.common.unregistered.x264_build >= 0)
+    if (!h->avctx->motion_vectors_only && h->sei.common.unregistered.x264_build >= 0)
         h->x264_build = h->sei.common.unregistered.x264_build;
 
     assert(h->cur_pic_ptr->long_ref == 0);
