@@ -2802,11 +2802,11 @@ decode_intra_mb:
                 for (c = 0; c < 2; c++)
                 {
                     if (h->avctx->motion_vectors_only) {
-                        decode_cabac_residual_dc_422(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
+                        decode_cabac_residual_dc_422_skip(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
                                                     CHROMA_DC_BLOCK_INDEX + c,
                                                     ff_h264_chroma422_dc_scan, 8);
                     } else {
-                        decode_cabac_residual_dc_422_skip(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
+                        decode_cabac_residual_dc_422(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
                                                     CHROMA_DC_BLOCK_INDEX + c,
                                                     ff_h264_chroma422_dc_scan, 8);
                     }
@@ -2822,9 +2822,9 @@ decode_intra_mb:
                         for (i = 0; i < 4; i++) {
                             const int index = 16 + 16 * c + 8*i8x8 + i;
                             if (h->avctx->motion_vectors_only) {
-                                decode_cabac_residual_nondc(h, sl, mb, 4, index, scan + 1, qmul, 15);
-                            } else {
                                 decode_cabac_residual_nondc_skip(h, sl, mb, 4, index, scan + 1, qmul, 15);
+                            } else {
+                                decode_cabac_residual_nondc(h, sl, mb, 4, index, scan + 1, qmul, 15);
                             }
 
                             mb += 16<<pixel_shift;
@@ -2840,10 +2840,10 @@ decode_intra_mb:
                 int c;
                 for (c = 0; c < 2; c++) {
                     if (h->avctx->motion_vectors_only) {
-                        decode_cabac_residual_dc(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
+                        decode_cabac_residual_dc_skip(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
                                                  3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
                     } else {
-                        decode_cabac_residual_dc_skip(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
+                        decode_cabac_residual_dc(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
                                                        3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
                     }
                 }
@@ -2855,9 +2855,9 @@ decode_intra_mb:
                     for( i = 0; i < 4; i++ ) {
                         const int index = 16 + 16 * c + i;
                         if (h->avctx->motion_vectors_only) {
-                            decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
-                        } else {
                             decode_cabac_residual_nondc_skip(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
+                        } else {
+                            decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
                         }
                     }
                 }
