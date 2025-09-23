@@ -1623,7 +1623,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
     /* map node ctx => cabac ctx for level>1 */
     static const uint8_t coeff_abs_levelgt1_ctx[2][8] = {
         { 5, 5, 5, 5, 6, 7, 8, 9 },
-        { 5, 5, 5, 5, 6, 7, 8, 8 }, // 422/dc case
+        { 5, 5, 5, 5, 6, 7, 8, 8 },
     };
     static const uint8_t coeff_abs_level_transition[2][8] = {
     /* update node ctx after decoding a level=1 */
@@ -1633,7 +1633,6 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
     };
 
     int index[64];
-
     int last;
     int coeff_count = 0;
     int node_ctx = 0;
@@ -1756,9 +1755,9 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
 
 
 
-    if (h->pixel_shift) {
+            if (h->pixel_shift) {
         SKIP_BLOCK(int32_t)
-    } else {
+            } else {
         SKIP_BLOCK(int16_t)
     }
 
@@ -2156,7 +2155,7 @@ decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
         
         // Use dummy storage instead of sl->mb_luma_dc
         static int16_t dummy_dc[32];
-        decode_cabac_residual_dc(h, sl, dummy_dc, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
+        decode_cabac_residual_dc_skip(h, sl, dummy_dc, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
 
         if( cbp&15 ) {
             const uint32_t *qmul = h->ps.pps->dequant4_coeff[p][qscale];
