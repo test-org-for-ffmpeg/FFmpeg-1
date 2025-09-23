@@ -2800,9 +2800,17 @@ decode_intra_mb:
             if( cbp&0x30 ){
                 int c;
                 for (c = 0; c < 2; c++)
-                    decode_cabac_residual_dc_422(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
-                                                 CHROMA_DC_BLOCK_INDEX + c,
-                                                 ff_h264_chroma422_dc_scan, 8);
+                {
+                    if (h->avctx->motion_vectors_only) {
+                        decode_cabac_residual_dc_422(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
+                                                    CHROMA_DC_BLOCK_INDEX + c,
+                                                    ff_h264_chroma422_dc_scan, 8);
+                    } else {
+                        decode_cabac_residual_dc_422_skip(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
+                                                    CHROMA_DC_BLOCK_INDEX + c,
+                                                    ff_h264_chroma422_dc_scan, 8);
+                    }
+                }
             }
 
             if( cbp&0x20 ) {
@@ -2813,7 +2821,12 @@ decode_intra_mb:
                     for (i8x8 = 0; i8x8 < 2; i8x8++) {
                         for (i = 0; i < 4; i++) {
                             const int index = 16 + 16 * c + 8*i8x8 + i;
-                            decode_cabac_residual_nondc(h, sl, mb, 4, index, scan + 1, qmul, 15);
+                            if (h->avctx->motion_vectors_only) {
+                                decode_cabac_residual_nondc(h, sl, mb, 4, index, scan + 1, qmul, 15);
+                            } else {
+                                decode_cabac_residual_nondc_skip(h, sl, mb, 4, index, scan + 1, qmul, 15);
+                            }
+
                             mb += 16<<pixel_shift;
                         }
                     }
@@ -2825,18 +2838,27 @@ decode_intra_mb:
         } else /* yuv420 */ {
             if( cbp&0x30 ){
                 int c;
-                for (c = 0; c < 2; c++)
-                    decode_cabac_residual_dc(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
-                                             3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
+                for (c = 0; c < 2; c++) {
+                    if (h->avctx->motion_vectors_only) {
+                        decode_cabac_residual_dc(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
+                                                 3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
+                    } else {
+                        decode_cabac_residual_dc_skip(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
+                                                       3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
+                    }
+                }
             }
-
             if( cbp&0x20 ) {
                 int c, i;
                 for( c = 0; c < 2; c++ ) {
                     qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
                     for( i = 0; i < 4; i++ ) {
                         const int index = 16 + 16 * c + i;
-                        decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
+                        if (h->avctx->motion_vectors_only) {
+                            decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
+                        } else {
+                            decode_cabac_residual_nondc_skip(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
+                        }
                     }
                 }
             } else {
@@ -2850,6 +2872,7 @@ decode_intra_mb:
         fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
         sl->last_qscale_diff = 0;
     }
+    
 
     h->cur_pic.qscale_table[mb_xy] = sl->qscale;
     write_back_non_zero_count(h, sl);
