@@ -2183,7 +2183,7 @@ decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                     const uint32_t *qmul = h->ps.pps->dequant4_coeff[cqm][qscale];
                     for( i4x4 = 0; i4x4 < 4; i4x4++ ) {
                         const int index = 16*p + 4*i8x8 + i4x4;
-                        decode_cabac_residual_nondc(h, sl, dummy_block, ctx_cat[2][p], index, scan, qmul, 16);
+                        decode_cabac_residual_nondc_skip(h, sl, dummy_block, ctx_cat[2][p], index, scan, qmul, 16);
                     }
                 }
             } else {
