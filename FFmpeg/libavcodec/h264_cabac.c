@@ -1680,10 +1680,10 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
         if( last == max_coeff -1 ) {\
             index[coeff_count++] = last;\
         }
-        const uint8_t *sig_off = significant_coeff_flag_offset_8x8[MB_FIELD(sl)];
+    const uint8_t *sig_off = significant_coeff_flag_offset_8x8[MB_FIELD(sl)];
 #ifdef decode_significance
         coeff_count = decode_significance_8x8(CC, significant_coeff_ctx_base, index,
-                                                 last_coeff_ctx_base, sig_off);
+                                            last_coeff_ctx_base, sig_off);
     } else {
         if (is_dc && chroma422) { // dc 422
             DECODE_SIGNIFICANCE(7, sig_coeff_offset_dc[last], sig_coeff_offset_dc[last]);
@@ -1698,7 +1698,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
             DECODE_SIGNIFICANCE(7, sig_coeff_offset_dc[last], sig_coeff_offset_dc[last]);
         } else {
             DECODE_SIGNIFICANCE(max_coeff - 1, last, last);
-        }
+    }
 #endif
     }
     av_assert2(coeff_count > 0);
@@ -1724,7 +1724,8 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
 #define SKIP_BLOCK() \
     do { \
         uint8_t *ctx = coeff_abs_level1_ctx[node_ctx] + abs_level_m1_ctx_base; \
-        --coeff_count; /* no need to index scantable[] here */ \
+        /* preserve reverse order via index[], but no need to read scantable[] */ \
+        --coeff_count; \
         if (get_cabac(CC, ctx) == 0) { \
             node_ctx = coeff_abs_level_transition[0][node_ctx]; \
             (void)get_cabac_bypass_sign(CC, -1); \
@@ -1744,6 +1745,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
         } \
     } while (coeff_count);
 
+
     SKIP_BLOCK()
 
 
@@ -1752,6 +1754,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
     sl->cabac.low       = cc.low       ;
     sl->cabac.bytestream= cc.bytestream;
 #endif
+
 
 }
 
@@ -1800,6 +1803,8 @@ decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
     /* update node ctx after decoding a level>1 */
         { 4, 4, 4, 4, 5, 6, 7, 7 }
     };
+
+    int index[64];
 
     int last;
     int coeff_count = 0;
@@ -2654,10 +2659,10 @@ decode_intra_mb:
         }
     }
 
-   if( IS_INTER( mb_type ) ) {
+    if( IS_INTER( mb_type ) ) {
         h->chroma_pred_mode_table[mb_xy] = 0;
         write_back_motion(h, sl, mb_type);
-   }
+    }
 
     if( !IS_INTRA16x16( mb_type ) ) {
         cbp  = decode_cabac_mb_cbp_luma(sl);
@@ -2676,8 +2681,6 @@ decode_intra_mb:
         mb_type |= MB_TYPE_8x8DCT * get_cabac_noinline(&sl->cabac, &sl->cabac_state[399 + sl->neighbor_transform_size]);
     }
 
-    /* It would be better to do this in fill_decode_caches, but we don't know
-     * the transform mode of the current macroblock there. */
     if (CHROMA444(h) && IS_8x8DCT(mb_type)){
         int i;
         uint8_t *nnz_cache = sl->non_zero_count_cache;
@@ -2856,6 +2859,8 @@ decode_intra_mb:
         fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
         sl->last_qscale_diff = 0;
     }
+
+
     
 
     h->cur_pic.qscale_table[mb_xy] = sl->qscale;

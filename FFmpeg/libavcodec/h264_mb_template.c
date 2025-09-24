@@ -352,6 +352,7 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
                 xchg_mb_border(h, sl, dest[0], dest[1], dest[2], linesize,
                                linesize, 0, 1, SIMPLE, PIXEL_SHIFT);
         } else {
+            if (!h->avctx->motion_vectors_only) {
             FUNC(hl_motion_444)(h, sl, dest[0], dest[1], dest[2],
                       h->h264qpel.put_h264_qpel_pixels_tab,
                       h->h264chroma.put_h264_chroma_pixels_tab,
@@ -359,6 +360,7 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
                       h->h264chroma.avg_h264_chroma_pixels_tab,
                       h->h264dsp.weight_h264_pixels_tab,
                       h->h264dsp.biweight_h264_pixels_tab);
+            }
         }
 
         if (!h->avctx->motion_vectors_only) {
