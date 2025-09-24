@@ -2441,17 +2441,15 @@ decode_intra_mb:
         } else {
             sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
                                                                      sl->left_samples_available, sl->intra16x16_pred_mode, 0);
-            if (!h->avctx->motion_vectors_only && sl->intra16x16_pred_mode < 0) return -1;
+            if (sl->intra16x16_pred_mode < 0) return -1;
         }
         if(decode_chroma){
             h->chroma_pred_mode_table[mb_xy] =
             pred_mode                        = decode_cabac_mb_chroma_pre_mode(h, sl);
 
-            if (!h->avctx->motion_vectors_only) {
-                pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
-                                                         sl->left_samples_available, pred_mode, 1 );
-                if( pred_mode < 0 ) return -1;
-            }
+            pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
+                                                     sl->left_samples_available, pred_mode, 1 );
+            if( pred_mode < 0 ) return -1;
             sl->chroma_pred_mode = pred_mode;
         } else {
             sl->chroma_pred_mode = DC_128_PRED8x8;
