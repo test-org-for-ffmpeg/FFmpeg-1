@@ -506,8 +506,6 @@ static int h264_frame_start(H264Context *h)
     }
     pic = &h->DPB[i];
 
-    if (h->avctx->motion_vectors_only) {
-
     pic->reference              = h->droppable ? 0 : h->picture_structure;
     pic->field_picture          = h->picture_structure != PICT_FRAME;
     pic->frame_num               = h->poc.frame_num;
@@ -567,13 +565,6 @@ static int h264_frame_start(H264Context *h)
         h->block_offset[32 + i]      = (4 * ((scan8[i] - scan8[0]) & 7) << pixel_shift) + 4 * pic->f->linesize[1] * ((scan8[i] - scan8[0]) >> 3);
         h->block_offset[48 + 16 + i] =
         h->block_offset[48 + 32 + i] = (4 * ((scan8[i] - scan8[0]) & 7) << pixel_shift) + 8 * pic->f->linesize[1] * ((scan8[i] - scan8[0]) >> 3);
-    }
-} 
-else {
-        // Original allocation path
-        ret = alloc_picture(h, pic);
-        if (ret < 0)
-            return ret;
     }
 
     /* We mark the current picture as non-reference after allocating it, so
@@ -2304,9 +2295,6 @@ static av_always_inline void fill_filter_caches_inter(const H264Context *h,
  */
 static int fill_filter_caches(const H264Context *h, H264SliceContext *sl, int mb_type)
 {
-    if (h->avctx->motion_vectors_only) {
-        return 1; // Skip all filtering cache setup
-    }
     const int mb_xy = sl->mb_xy;
     int top_xy, left_xy[LEFT_MBS];
     int top_type, left_type[LEFT_MBS];
