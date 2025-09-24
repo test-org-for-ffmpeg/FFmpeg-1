@@ -118,45 +118,117 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
     return coeff_count;
 }
 
-// NEW: MOTION VECTOR OPTIMIZED VERSION - 4x faster
-#define decode_significance_mv_ultra decode_significance_x86_mv_ultra
-static int decode_significance_x86_mv_ultra(CABACContext *c, int max_coeff,
-                                           uint8_t *significant_coeff_ctx_base,
-                                           int *index, x86_reg last_off){
-    int coeff_count = 0;
-    
-    // Ultra-simplified significance parsing - just count coefficients
+#if HAVE_INLINE_ASM && ARCH_X86 && HAVE_7REGS
+
+// Count-only variant: same signature for drop-in use; 'index' is ignored
+static int decode_significance_8x8_x86_count(CABACContext *c,
+                                             uint8_t *significant_coeff_ctx_base,
+                                             int *index, // unused
+                                             uint8_t *last_coeff_ctx_base,
+                                             const uint8_t *sig_off)
+{
+    int bit;
+    x86_reg coeff_count;
+    x86_reg last = 0;
+    x86_reg state;
+
+#ifdef BROKEN_RELOCATIONS
+    void *tables;
     __asm__ volatile(
-        "mov               %1    , %%"FF_REG_c"                         \n\t"
-        "mov               %2    , %%"FF_REG_d"                         \n\t" 
-        "xor            %%"FF_REG_a", %%"FF_REG_a"                      \n\t"
-        
-        "1:                                                             \n\t"
-        "cmp            %%"FF_REG_d", %%"FF_REG_c"                      \n\t"
-        "jge               3f                                           \n\t"
-        
-        // Ultra-fast CABAC approximation 
-        "movl              %c6(%0), %%ebx                               \n\t"
-        "add               %%ebx  , %%ebx                               \n\t"
-        "js                2f                                           \n\t"
-        "inc            %%"FF_REG_a"                                     \n\t"
-        
-        "2:                                                             \n\t"
-        "movl              %%ebx  , %c6(%0)                             \n\t"
-        "inc            %%"FF_REG_c"                                     \n\t"
-        "jmp               1b                                           \n\t"
-        
-        "3:                                                             \n\t"
-        "mov            %%"FF_REG_a", %3                                 \n\t"
-        
-        : "=r"(c), "+r"(significant_coeff_ctx_base), "+r"(max_coeff), "=m"(coeff_count)
-        : "0"(c), "1"(significant_coeff_ctx_base), 
-          "i"(offsetof(CABACContext, low))
-        : "%"FF_REG_a, "%"FF_REG_c, "%"FF_REG_d, "%ebx", "memory"
+        "lea    " MANGLE(ff_h264_cabac_tables) ", %0      \n\t"
+        : "=&r"(tables)
+        : NAMED_CONSTRAINTS_ARRAY(ff_h264_cabac_tables)
     );
-    
+#endif
+
+    __asm__ volatile(
+        // state = last (scan position)
+        "mov %1, %6                             \n\t"
+        "3:                                     \n\t"
+
+        // sig context addr: sig_off[last] + significant_coeff_ctx_base
+        "mov %10, %0                            \n\t"
+        "movzb (%0, %6), %6                     \n\t"
+        "add %9, %6                             \n\t"
+
+        // decode significant_coeff_flag
+        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
+                             "%5", "%q5", "%k0", "%b0",
+                             "%c12(%7)", "%c13(%7)",
+                             AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
+                             AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
+                             AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
+                             "%15")
+
+        // restore last to state reg
+        "mov %1, %6                             \n\t"
+        // if not significant, skip last-flag and advance
+        "test $1, %4                            \n\t"
+        " jz 4f                                 \n\t"
+
+#ifdef BROKEN_RELOCATIONS
+        // last coeff ctx: table lookup on scan position
+        "movzb %c14(%15, %q6), %6               \n\t"
+#else
+        "movzb " MANGLE(ff_h264_cabac_tables) "+%c14(%6), %6 \n\t"
+#endif
+        "add %11, %6                            \n\t"
+
+        // decode last_coeff_flag
+        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
+                             "%5", "%q5", "%k0", "%b0",
+                             "%c12(%7)", "%c13(%7)",
+                             AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
+                             AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
+                             AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
+                             "%15")
+
+        // no index[] store here (removed)
+
+        // if last==1, exit loop, else continue
+        "test $1, %4                            \n\t"
+        " jnz 5f                                \n\t"
+
+        // 4: advance scan position and loop
+        "4:                                     \n\t"
+        "add $1, %6                             \n\t"
+        "mov %6, %1                             \n\t"
+        "cmp $63, %6                            \n\t"
+        " jb 3b                                 \n\t"
+
+        // loop exit; original wrote final position to index[], removed
+
+        // 5: epilogue: update c->low-range idx (coeff_count output stays in %k0 as original)
+        "5:                                     \n\t"
+        "addl %8, %k0                           \n\t"
+        "shr $2, %k0                            \n\t"
+        : "=&q"(coeff_count),      // %0
+          "+" REG64(last),         // %1 scan position (0..63)
+          "+r"(index),             // %2 (unused; kept for signature parity)
+          "+&r"(c->low),           // %3
+          "=&r"(bit),              // %4
+          "+&r"(c->range),         // %5
+          "=&r"(state)             // %6
+        : "r"(c),                  // %7 (CABACContext*)
+          "i"(offsetof(CABACContext, bytestream)),      // %8
+          "m"(significant_coeff_ctx_base),             // %9
+          REG64(sig_off),                               // %10
+          REG64(last_coeff_ctx_base),                   // %11
+          "i"(offsetof(CABACContext, bytestream)),      // %12 (as per original macro usage)
+          "i"(offsetof(CABACContext, bytestream_end)),  // %13
+          "i"(H264_LAST_COEFF_FLAG_OFFSET_8x8_OFFSET)   // %14
+#ifdef BROKEN_RELOCATIONS
+          , "r"(tables)               // %15
+#else
+          , "r"(c)                    // %15 table base via c for macro needs
+#endif
+        : "%" FF_REG_c, "memory"
+    );
+
     return coeff_count;
 }
+
+#endif // HAVE_INLINE_ASM && ARCH_X86 && HAVE_7REGS
 
 #define decode_significance_8x8 decode_significance_8x8_x86
 static int decode_significance_8x8_x86(CABACContext *c,
