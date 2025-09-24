@@ -63,6 +63,66 @@
 #include "h264addpx_template.c"
 #undef BIT_DEPTH
 
+// Add these no-op functions at the top of h264dsp.c, before ff_h264dsp_init
+
+// No-op IDCT functions for motion_vectors_only mode
+static void h264_idct_add_noop(uint8_t *dst, int16_t *block, int stride) {
+    memset(block, 0, 16 * sizeof(int16_t));
+}
+
+static void h264_idct8_add_noop(uint8_t *dst, int16_t *block, int stride) {
+    memset(block, 0, 64 * sizeof(int16_t));
+}
+
+static void h264_idct_dc_add_noop(uint8_t *dst, int16_t *block, int stride) {
+    block[0] = 0;
+}
+
+static void h264_idct8_dc_add_noop(uint8_t *dst, int16_t *block, int stride) {
+    block[0] = 0;
+}
+
+static void h264_idct_add16_noop(uint8_t *dst, const int *block_offset,
+                                 int16_t *block, int stride,
+                                 const uint8_t nnzc[5 * 8]) {
+    memset(block, 0, 16 * 16 * sizeof(int16_t));
+}
+
+static void h264_idct_add16intra_noop(uint8_t *dst, const int *block_offset,
+                                      int16_t *block, int stride,
+                                      const uint8_t nnzc[5 * 8]) {
+    memset(block, 0, 16 * 16 * sizeof(int16_t));
+}
+
+static void h264_idct8_add4_noop(uint8_t *dst, const int *block_offset,
+                                 int16_t *block, int stride,
+                                 const uint8_t nnzc[5 * 8]) {
+    memset(block, 0, 16 * 16 * sizeof(int16_t));
+}
+
+static void h264_idct_add8_noop(uint8_t **dest, const int *block_offset, 
+                                int16_t *block, int stride, 
+                                const uint8_t nnzc[15*8]) {
+    memset(block + 16*16, 0, 8 * 16 * sizeof(int16_t));
+}
+
+static void h264_luma_dc_dequant_idct_noop(int16_t *output, int16_t *input, int qmul) {
+    memset(output, 0, 16 * sizeof(int16_t));
+    memset(input, 0, 16 * sizeof(int16_t));
+}
+
+static void h264_chroma_dc_dequant_idct_noop(int16_t *block, int qmul) {
+    memset(block, 0, 4 * sizeof(int16_t));
+}
+
+static void h264_loop_filter_noop() {
+    // Do nothing - no loop filtering needed for motion vectors
+}
+
+static void h264_weight_noop() {
+    // Do nothing - no weighting needed for motion vectors  
+}
+
 av_cold void ff_h264dsp_init(H264DSPContext *c, const int bit_depth,
                              const int chroma_format_idc, const int motion_vectors_only)
 {
@@ -80,13 +140,32 @@ av_cold void ff_h264dsp_init(H264DSPContext *c, const int bit_depth,
     }
 
     if (motion_vectors_only) {
-        // Set expensive functions to no-ops or NULL
-        //c->h264_luma_dc_dequant_idct = NULL;
-        c->h264_chroma_dc_dequant_idct = NULL;
-        c->h264_idct_add = NULL;
-        c->h264_idct8_add = NULL;
-        // Skip loop filters, weighting, etc.
-        return;
+        // Set all expensive functions to no-ops for motion vectors only
+        c->h264_idct_add = h264_idct_add_noop;
+        c->h264_idct8_add = h264_idct8_add_noop;
+        c->h264_idct_dc_add = h264_idct_dc_add_noop;
+        c->h264_idct8_dc_add = h264_idct8_dc_add_noop;
+        c->h264_idct_add16 = h264_idct_add16_noop;
+        c->h264_idct_add16intra = h264_idct_add16intra_noop;
+        c->h264_idct8_add4 = h264_idct8_add4_noop;
+        c->h264_idct_add8 = h264_idct_add8_noop;
+        c->h264_luma_dc_dequant_idct = h264_luma_dc_dequant_idct_noop;
+        c->h264_chroma_dc_dequant_idct = h264_chroma_dc_dequant_idct_noop;
+        
+        // Skip all loop filters and weighting
+        c->h264_v_loop_filter_luma = (void*)h264_loop_filter_noop;
+        c->h264_h_loop_filter_luma = (void*)h264_loop_filter_noop;
+        c->h264_v_loop_filter_chroma = (void*)h264_loop_filter_noop;
+        c->h264_h_loop_filter_chroma = (void*)h264_loop_filter_noop;
+        
+        // Skip all weighting functions
+        for (int i = 0; i < 4; i++) {
+            c->weight_h264_pixels_tab[i] = (void*)h264_weight_noop;
+            c->biweight_h264_pixels_tab[i] = (void*)h264_weight_noop;
+        }
+        
+        c->startcode_find_candidate = ff_startcode_find_candidate_c;
+        return; // Skip all the expensive initialization
     }
 
 #define H264_DSP(depth) \

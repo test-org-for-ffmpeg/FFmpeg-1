@@ -244,7 +244,7 @@ static int decode_significance_8x8_x86(CABACContext *c,
     return coeff_count;
 }
 
-// NEW: MOTION VECTOR OPTIMIZED 8x8 VERSION - 4x faster
+// NEW: MOTION VECTOR OPTIMIZED 8x8 VERSION 
 #define decode_significance_8x8_mv_ultra decode_significance_8x8_x86_mv_ultra  
 static int decode_significance_8x8_x86_mv_ultra(CABACContext *c,
                                                uint8_t *significant_coeff_ctx_base,

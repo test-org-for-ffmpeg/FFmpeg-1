@@ -1761,9 +1761,6 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
         SKIP_BLOCK(int16_t)
     }
 
-
-
-
 #ifdef CABAC_ON_STACK
     sl->cabac.range     = cc.range     ;
     sl->cabac.low       = cc.low       ;
@@ -2428,27 +2425,33 @@ decode_intra_mb:
                 for( i = 0; i < 16; i++ ) {
                     int pred = pred_intra_mode(h, sl, i);
                     sl->intra4x4_pred_mode_cache[scan8[i]] = decode_cabac_mb_intra4x4_pred_mode(sl, pred);
-
-                    ff_tlog(h->avctx, "i4x4 pred=%d mode=%d\n", pred,
-                            sl->intra4x4_pred_mode_cache[scan8[i]]);
+                    if (!h->avctx->motion_vectors_only) {
+                        ff_tlog(h->avctx, "i4x4 pred=%d mode=%d\n", pred,
+                                sl->intra4x4_pred_mode_cache[scan8[i]]);
+                        }
                 }
             }
             write_back_intra_pred_mode(h, sl);
-            if (ff_h264_check_intra4x4_pred_mode(sl->intra4x4_pred_mode_cache, h->avctx,
-                                                 sl->top_samples_available, sl->left_samples_available) < 0 )
-                return -1;
+            if (!h->avctx->motion_vectors_only) {
+                if (ff_h264_check_intra4x4_pred_mode(sl->intra4x4_pred_mode_cache, h->avctx,
+                                                    sl->top_samples_available, sl->left_samples_available) < 0 )
+                    return -1;
+            }
+                
         } else {
             sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
                                                                      sl->left_samples_available, sl->intra16x16_pred_mode, 0);
-            if (sl->intra16x16_pred_mode < 0) return -1;
+            if (!h->avctx->motion_vectors_only && sl->intra16x16_pred_mode < 0) return -1;
         }
         if(decode_chroma){
             h->chroma_pred_mode_table[mb_xy] =
             pred_mode                        = decode_cabac_mb_chroma_pre_mode(h, sl);
 
-            pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
-                                                     sl->left_samples_available, pred_mode, 1 );
-            if( pred_mode < 0 ) return -1;
+            if (!h->avctx->motion_vectors_only) {
+                pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
+                                                         sl->left_samples_available, pred_mode, 1 );
+                if( pred_mode < 0 ) return -1;
+            }
             sl->chroma_pred_mode = pred_mode;
         } else {
             sl->chroma_pred_mode = DC_128_PRED8x8;

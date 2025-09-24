@@ -133,6 +133,15 @@ static inline int decode_hrd_parameters(GetBitContext *gb, void *logctx,
 static inline int decode_vui_parameters(GetBitContext *gb, void *logctx,
                                         SPS *sps)
 {
+    // SKIP VUI FOR MOTION VECTORS ONLY
+    AVCodecContext *avctx = (AVCodecContext *)logctx;
+    if (avctx && avctx->motion_vectors_only) {
+        // Just skip all VUI bits without parsing - only timing and color and so on
+        int bits_to_skip = get_bits_left(gb);
+        skip_bits_long(gb, bits_to_skip);
+        return 0;
+    }
+
     ff_h2645_decode_common_vui_params(gb, &sps->vui, logctx);
 
     if (show_bits1(gb) && get_bits_left(gb) < 10) {
@@ -234,6 +243,7 @@ static int decode_scaling_matrices(GetBitContext *gb, const SPS *sps,
                                     uint8_t(*scaling_matrix4)[16],
                                     uint8_t(*scaling_matrix8)[64])
 {
+    
     int fallback_sps = !is_sps && sps->scaling_matrix_present;
     const uint8_t *fallback[4] = {
         fallback_sps ? sps->scaling_matrix4[0] : default_scaling4[0],
