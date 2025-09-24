@@ -1703,63 +1703,49 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
     }
     av_assert2(coeff_count > 0);
 
-    if( is_dc ) {
-        if( cat == 3 )
+    // Always keep these writes; they are part of the decoder’s control state.
+    if (is_dc) {
+        if (cat == 3)
             h->cbp_table[sl->mb_xy] |= 0x40 << (n - CHROMA_DC_BLOCK_INDEX);
         else
             h->cbp_table[sl->mb_xy] |= 0x100 << (n - LUMA_DC_BLOCK_INDEX);
         sl->non_zero_count_cache[scan8[n]] = coeff_count;
     } else {
-        if( max_coeff == 64 )
-            fill_rectangle(&sl->non_zero_count_cache[scan8[n]], 2, 2, 8, coeff_count, 1);
-        else {
-            av_assert2( cat == 1 || cat ==  2 || cat ==  4 || cat == 7 || cat == 8 || cat == 11 || cat == 12 );
+        if (max_coeff == 64) {
+            // micro-opt: expand fill_rectangle inline to 4 stores
+            uint8_t *p = &sl->non_zero_count_cache[scan8[n]];
+            p[0] = coeff_count; p[1*8] = coeff_count; p[1] = coeff_count; p[1 + 8] = coeff_count;
+        } else {
             sl->non_zero_count_cache[scan8[n]] = coeff_count;
         }
     }
 
-#define SKIP_BLOCK(type) \
+
+#define SKIP_BLOCK() \
     do { \
         uint8_t *ctx = coeff_abs_level1_ctx[node_ctx] + abs_level_m1_ctx_base; \
- \
-        int j= scantable[index[--coeff_count]]; \
- \
-        if( get_cabac( CC, ctx ) == 0 ) { \
+        --coeff_count; /* no need to index scantable[] here */ \
+        if (get_cabac(CC, ctx) == 0) { \
             node_ctx = coeff_abs_level_transition[0][node_ctx]; \
-            get_cabac_bypass_sign( CC, -1); /* Parse but discard */ \
+            (void)get_cabac_bypass_sign(CC, -1); \
         } else { \
             unsigned coeff_abs = 2; \
             ctx = coeff_abs_levelgt1_ctx[is_dc && chroma422][node_ctx] + abs_level_m1_ctx_base; \
             node_ctx = coeff_abs_level_transition[1][node_ctx]; \
-\
-            while( coeff_abs < 15 && get_cabac( CC, ctx ) ) { \
-                coeff_abs++; \
-            } \
-\
-            if( coeff_abs >= 15 ) { \
+            while (coeff_abs < 15 && get_cabac(CC, ctx)) coeff_abs++; \
+            if (coeff_abs >= 15) { \
                 int j_loop = 0; \
-                while (get_cabac_bypass(CC) && j_loop < 16+7) { \
-                    j_loop++; \
-                } \
-\
-                coeff_abs=1; \
-                while( j_loop-- ) { \
-                    coeff_abs += coeff_abs + get_cabac_bypass( CC ); \
-                } \
-                coeff_abs+= 14U; \
+                while (get_cabac_bypass(CC) && j_loop < 23) j_loop++; \
+                coeff_abs = 1; \
+                while (j_loop--) coeff_abs += coeff_abs + get_cabac_bypass(CC); \
+                coeff_abs += 14U; \
             } \
-\
-            get_cabac_bypass_sign( CC, -coeff_abs ); /* Parse but discard */ \
+            (void)get_cabac_bypass_sign(CC, -coeff_abs); \
         } \
-    } while ( coeff_count );
+    } while (coeff_count);
 
+    SKIP_BLOCK()
 
-
-            if (h->pixel_shift) {
-        SKIP_BLOCK(int32_t)
-            } else {
-        SKIP_BLOCK(int16_t)
-    }
 
 #ifdef CABAC_ON_STACK
     sl->cabac.range     = cc.range     ;
