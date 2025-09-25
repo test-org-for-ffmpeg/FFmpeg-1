@@ -1446,6 +1446,32 @@ static int decode_cabac_mb_cbp_chroma(H264SliceContext *sl)
     return 1 + get_cabac_noinline( &sl->cabac, &sl->cabac_state[77 + ctx] );
 }
 
+static int skip_coefficients_keep_sync(const H264Context *h, H264SliceContext *sl,
+                                      int cat, int n, const uint8_t *scantable,
+                                      int maxcoeff)
+{
+    CABACContext *c = &sl->cabac;
+    int coeff_count = 0;
+
+    // Skip if block not coded at all  
+    if (cat != 5) {
+        int coded_block_flag = get_cabac_cbf_ctx(sl, cat, n, maxcoeff, 1);
+        if (!coded_block_flag) {
+            return 0;
+        }
+    }
+
+    // Fast bypass-only parsing for synchronization
+    for (int i = 0; i < maxcoeff; i++) {
+        if (get_cabac_bypass(c)) {
+            coeff_count++;
+            if (get_cabac_bypass(c)) break; // last coeff flag
+        }
+    }
+
+    return coeff_count;
+}
+
 static int decode_cabac_p_mb_sub_type(H264SliceContext *sl)
 {
     if( get_cabac( &sl->cabac, &sl->cabac_state[21] ) )
@@ -1759,6 +1785,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
 }
 
 
+
 static av_always_inline void
 decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
                                int16_t *block,
@@ -2046,6 +2073,11 @@ static av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h,
                                                       const uint8_t *scantable,
                                                       int max_coeff)
 {
+    // ADD THIS AT THE VERY BEGINNING:
+    if (h->avctx->motion_vectors_only) {
+        return skip_coefficients_keep_sync(h, sl, cat, n, scantable, max_coeff);
+    }
+
     /* read coded block flag */
     if( get_cabac( &sl->cabac, &sl->cabac_state[get_cabac_cbf_ctx(sl, cat, n, max_coeff, 1)]) == 0 ) {
         sl->non_zero_count_cache[scan8[n]] = 0;
@@ -2128,6 +2160,10 @@ decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                                const uint8_t *scan, const uint8_t *scan8x8, int pixel_shift,
                                int mb_type, int cbp, int p)
 {
+    if (h->avctx->motion_vectors_only) {
+        skip_coefficients_keep_sync(h, sl, 0, n, NULL, 16);
+        return;  // Just return without value
+} else {
     static const uint8_t ctx_cat[4][3] = {{0,6,10},{1,7,11},{2,8,12},{5,9,13}};
     int i8x8, i4x4;
     int qscale = p == 0 ? sl->qscale : sl->chroma_qp[p - 1];
@@ -2176,6 +2212,7 @@ decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
             }
         }
     }
+}
 }
 
 

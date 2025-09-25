@@ -191,6 +191,36 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
 
     av_assert0(!pic->f->data[0]);
 
+    // Motion vectors only mode - use threading system with minimal buffer
+    if (h->avctx->motion_vectors_only) {
+        // Set minimal dimensions to reduce memory usage
+        int orig_width = h->avctx->width;
+        int orig_height = h->avctx->height;
+        
+        // Temporarily set minimal size (must be multiple of 16 for H.264)
+        h->avctx->width = 16;
+        h->avctx->height = 16;
+        pic->f->width = 16;
+        pic->f->height = 16;
+        pic->f->format = AV_PIX_FMT_YUV420P;
+        
+        // Use threading system to properly set up private_ref
+        pic->tf.f = pic->f;
+        ret = ff_thread_get_ext_buffer(h->avctx, &pic->tf,
+                                       pic->reference ? AV_GET_BUFFER_FLAG_REF : 0);
+        
+        // Restore original dimensions
+        h->avctx->width = orig_width;
+        h->avctx->height = orig_height;
+        
+        if (ret < 0)
+            goto fail;
+            
+        // Skip all other pixel-related allocations
+        goto motion_vector_tables;
+    }
+
+    // Normal full decode path
     if (h->sei.common.lcevc.info) {
         HEVCSEILCEVC *lcevc = &h->sei.common.lcevc;
         ret = ff_frame_new_side_data_from_buf(h->avctx, pic->f, AV_FRAME_DATA_LCEVC, &lcevc->info);
@@ -217,13 +247,6 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
     if (ret < 0)
         goto fail;
 
-    if (h->decode_error_flags_pool) {
-        pic->decode_error_flags = av_refstruct_pool_get(h->decode_error_flags_pool);
-        if (!pic->decode_error_flags)
-            goto fail;
-        atomic_init(pic->decode_error_flags, 0);
-    }
-
     if (CONFIG_GRAY && !h->avctx->hwaccel && h->flags & AV_CODEC_FLAG_GRAY && pic->f->data[2]) {
         int h_chroma_shift, v_chroma_shift;
         av_pix_fmt_get_chroma_sub_sample(pic->f->format,
@@ -235,6 +258,15 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
             memset(pic->f->data[2] + pic->f->linesize[2]*i,
                    0x80, AV_CEIL_RSHIFT(pic->f->width, h_chroma_shift));
         }
+    }
+
+motion_vector_tables:
+    // Motion vector storage (ALWAYS ALLOCATE)
+    if (h->decode_error_flags_pool) {
+        pic->decode_error_flags = av_refstruct_pool_get(h->decode_error_flags_pool);
+        if (!pic->decode_error_flags)
+            goto fail;
+        atomic_init(pic->decode_error_flags, 0);
     }
 
     if (!h->qscale_table_pool) {
@@ -251,6 +283,7 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
     pic->mb_type      = pic->mb_type_base + 2 * h->mb_stride + 1;
     pic->qscale_table = pic->qscale_table_base + 2 * h->mb_stride + 1;
 
+    // Motion vector arrays (ALWAYS ALLOCATE)
     for (i = 0; i < 2; i++) {
         pic->motion_val_base[i] = av_refstruct_pool_get(h->motion_val_pool);
         pic->ref_index[i]       = av_refstruct_pool_get(h->ref_index_pool);
@@ -271,6 +304,8 @@ fail:
     ff_h264_unref_picture(pic);
     return (ret < 0) ? ret : AVERROR(ENOMEM);
 }
+
+
 
 static int find_unused_picture(const H264Context *h)
 {
