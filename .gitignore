@@ -1,2 +1,10 @@
 FFmpeg-8.0/lib
 FFmpeg-8.0-custom/lib
+
+FFmpeg-8.0/include
+FFmpeg-8.0-custom/include
+
+FFmpeg-8.0/bin
+FFmpeg-8.0-custom/bin
+
+*Zone.Identifier*
