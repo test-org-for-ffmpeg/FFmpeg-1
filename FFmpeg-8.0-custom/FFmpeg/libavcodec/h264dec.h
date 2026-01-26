@@ -600,7 +600,6 @@ int ff_h264_build_ref_list(H264Context *h, H264SliceContext *sl);
 void ff_h264_remove_all_refs(H264Context *h);
 void ff_h264_export_frame_side_data(H264Context *h, H264Picture *pic, int insert);
 
-
 /**
  * Execute the reference picture marking (memory management control operations).
  */

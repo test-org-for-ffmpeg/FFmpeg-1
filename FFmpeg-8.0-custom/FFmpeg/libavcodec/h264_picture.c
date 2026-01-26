@@ -73,7 +73,9 @@ static void h264_copy_picture_params(H264Picture *dst, const H264Picture *src)
 
     // SIMPLIFY: Skip hwaccel and decode error flags unconditionally for now
     // (These are rarely used and safe to skip for motion vector extraction)
-    av_refstruct_replace(&dst->hwaccel_picture_private, src->hwaccel_picture_private);
+    av_refstruct_replace(&dst->hwaccel_picture_private,
+                          src->hwaccel_picture_private);
+
     av_refstruct_replace(&dst->decode_error_flags, src->decode_error_flags);
 
     dst->qscale_table = src->qscale_table;
@@ -106,7 +108,6 @@ static void h264_copy_picture_params(H264Picture *dst, const H264Picture *src)
     // ALWAYS SKIP FILM GRAIN FOR PERFORMANCE (safe optimization)
     dst->needs_fg      = 0;  // Force disable - film grain not needed for motion vectors
 }
-
 
 int ff_h264_ref_picture(H264Picture *dst, const H264Picture *src)
 {

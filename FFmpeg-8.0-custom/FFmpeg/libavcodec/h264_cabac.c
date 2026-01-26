@@ -1446,8 +1446,6 @@ static int decode_cabac_mb_cbp_chroma(H264SliceContext *sl)
     return 1 + get_cabac_noinline( &sl->cabac, &sl->cabac_state[77 + ctx] );
 }
 
-
-
 static int decode_cabac_p_mb_sub_type(H264SliceContext *sl)
 {
     if( get_cabac( &sl->cabac, &sl->cabac_state[21] ) )
@@ -1756,11 +1754,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
     sl->cabac.low       = cc.low       ;
     sl->cabac.bytestream= cc.bytestream;
 #endif
-
-
 }
-
-
 
 static av_always_inline void
 decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
@@ -1894,7 +1888,6 @@ decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
         }
     }
 
-
 #define STORE_BLOCK(type) \
     do { \
         uint8_t *ctx = coeff_abs_level1_ctx[node_ctx] + abs_level_m1_ctx_base; \
@@ -1948,8 +1941,6 @@ decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
             sl->cabac.low       = cc.low       ;
             sl->cabac.bytestream= cc.bytestream;
 #endif
-
-
 
 }
 
@@ -2049,8 +2040,6 @@ static av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h,
                                                       const uint8_t *scantable,
                                                       int max_coeff)
 {
-
-
     /* read coded block flag */
     if( get_cabac( &sl->cabac, &sl->cabac_state[get_cabac_cbf_ctx(sl, cat, n, max_coeff, 1)]) == 0 ) {
         sl->non_zero_count_cache[scan8[n]] = 0;
@@ -2058,7 +2047,6 @@ static av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h,
     }
     decode_cabac_residual_dc_internal_skip(h, sl, block, cat, n, scantable, max_coeff);
 }
-
 
 static av_always_inline void
 decode_cabac_residual_dc_422_skip(const H264Context *h, H264SliceContext *sl,
@@ -2185,8 +2173,6 @@ decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
     }
 }
 
-
-
 // FOR DC COEFFICIENTS - Use the original function with dummy storage
 /*static av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h, H264SliceContext *sl,
                                int cat, int n, const uint8_t *scantable, int max_coeff)
@@ -2196,10 +2182,6 @@ decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
     // Use the existing decode_cabac_residual_dc function with dummy storage
     decode_cabac_residual_dc(h, sl, dummy_block, cat, n, scantable, max_coeff);
 }*/
-
-
-
-
 
 static av_always_inline void decode_cabac_luma_residual(const H264Context *h, H264SliceContext *sl,
                                                         const uint8_t *scan, const uint8_t *scan8x8,
@@ -2246,8 +2228,6 @@ static av_always_inline void decode_cabac_luma_residual(const H264Context *h, H2
         }
     }
 }
-
-
 
 /**
  * Decode a macroblock.
@@ -2666,10 +2646,10 @@ decode_intra_mb:
         }
     }
 
-    if( IS_INTER( mb_type ) ) {
+   if( IS_INTER( mb_type ) ) {
         h->chroma_pred_mode_table[mb_xy] = 0;
         write_back_motion(h, sl, mb_type);
-    }
+   }
 
     if( !IS_INTRA16x16( mb_type ) ) {
         cbp  = decode_cabac_mb_cbp_luma(sl);

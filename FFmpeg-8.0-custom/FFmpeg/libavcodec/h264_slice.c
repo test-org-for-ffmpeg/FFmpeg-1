@@ -305,8 +305,6 @@ fail:
     return (ret < 0) ? ret : AVERROR(ENOMEM);
 }
 
-
-
 static int find_unused_picture(const H264Context *h)
 {
     int i;
@@ -524,7 +522,6 @@ static int h264_frame_start(H264Context *h)
         av_log(h->avctx, AV_LOG_ERROR, "Attempt to start a frame outside SETUP state\n");
         return AVERROR_BUG;
     }
-
 
     release_unused_pictures(h, 1);
     h->cur_pic_ptr = NULL;

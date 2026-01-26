@@ -675,17 +675,16 @@ static int decode_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
                                                          frame->pkt_dts);
 
         // SKIP ASSERTION FOR MOTION VECTORS ONLY MODE
-            /* the only case where decode data is not set should be decoders
-             * that do not call ff_get_buffer() */
-            av_assert0(frame->private_ref ||
-                       !(avctx->codec->capabilities & AV_CODEC_CAP_DR1));
+        /* the only case where decode data is not set should be decoders
+         * that do not call ff_get_buffer() */
+        av_assert0(frame->private_ref ||
+                   !(avctx->codec->capabilities & AV_CODEC_CAP_DR1));
 
         if (frame->private_ref) {
             FrameDecodeData *fdd = frame->private_ref;
 
             if (fdd->post_process) {
-                ret = fdd->post_process(avctx,
-                     frame);
+                ret = fdd->post_process(avctx, frame);
                 if (ret < 0) {
                     av_frame_unref(frame);
                     return ret;

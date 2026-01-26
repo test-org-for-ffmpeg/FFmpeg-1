@@ -356,8 +356,6 @@ static int decode_significance_8x8_x86_mv_ultra(CABACContext *c,
     return coeff_count;
 }
 
-
-
 #endif /* HAVE_7REGS && BROKEN_COMPILER */
 
 #endif /* HAVE_INLINE_ASM */

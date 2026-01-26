@@ -596,10 +596,9 @@ static int h264_parse(AVCodecParserContext *s,
 
         // Initialize DSP here where we have access to avctx
         int motion_vectors_only = 0;
-        if (avctx) {
-            // Access your custom field from AVCodecContext
+        if (avctx) 
             motion_vectors_only = avctx->motion_vectors_only;  // YOUR CUSTOM FIELD
-        }
+
         ff_h264dsp_init(&p->h264dsp, 8, 1, motion_vectors_only);
         
         if (avctx->extradata_size) {
