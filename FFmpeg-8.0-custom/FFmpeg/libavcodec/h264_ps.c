@@ -243,7 +243,6 @@ static int decode_scaling_matrices(GetBitContext *gb, const SPS *sps,
                                     uint8_t(*scaling_matrix4)[16],
                                     uint8_t(*scaling_matrix8)[64])
 {
-    
     int fallback_sps = !is_sps && sps->scaling_matrix_present;
     const uint8_t *fallback[4] = {
         fallback_sps ? sps->scaling_matrix4[0] : default_scaling4[0],
