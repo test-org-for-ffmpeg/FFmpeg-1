@@ -2668,6 +2668,8 @@ decode_intra_mb:
         mb_type |= MB_TYPE_8x8DCT * get_cabac_noinline(&sl->cabac, &sl->cabac_state[399 + sl->neighbor_transform_size]);
     }
 
+    /* It would be better to do this in fill_decode_caches, but we don't know
+     * the transform mode of the current macroblock there. */
     if (CHROMA444(h) && IS_8x8DCT(mb_type)){
         int i;
         uint8_t *nnz_cache = sl->non_zero_count_cache;
@@ -2846,9 +2848,6 @@ decode_intra_mb:
         fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
         sl->last_qscale_diff = 0;
     }
-
-
-    
 
     h->cur_pic.qscale_table[mb_xy] = sl->qscale;
     write_back_non_zero_count(h, sl);

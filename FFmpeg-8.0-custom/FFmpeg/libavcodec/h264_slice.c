@@ -2657,8 +2657,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             ret = ff_h264_decode_mb_cabac(h, sl);
 
+            // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
-                ff_h264_hl_decode_mb(h, sl);
+                if (!h->avctx->motion_vectors_only)
+                    ff_h264_hl_decode_mb(h, sl);
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
@@ -2666,8 +2668,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
                 ret = ff_h264_decode_mb_cabac(h, sl);
 
+                // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
-                    ff_h264_hl_decode_mb(h, sl);
+                    if (!h->avctx->motion_vectors_only)
+                        ff_h264_hl_decode_mb(h, sl);
                 sl->mb_y--;
             }
             eos = get_cabac_terminate(&sl->cabac);
@@ -2728,16 +2732,20 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             ret = ff_h264_decode_mb_cavlc(h, sl);
 
+            // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
-                ff_h264_hl_decode_mb(h, sl);
+                if (!h->avctx->motion_vectors_only)
+                    ff_h264_hl_decode_mb(h, sl);
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
                 ret = ff_h264_decode_mb_cavlc(h, sl);
 
+                // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
-                    ff_h264_hl_decode_mb(h, sl);
+                    if (!h->avctx->motion_vectors_only)
+                        ff_h264_hl_decode_mb(h, sl);
                 sl->mb_y--;
             }
 

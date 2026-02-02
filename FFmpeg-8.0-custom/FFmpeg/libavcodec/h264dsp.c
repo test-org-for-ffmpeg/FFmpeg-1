@@ -63,8 +63,6 @@
 #include "h264addpx_template.c"
 #undef BIT_DEPTH
 
-// Add these no-op functions at the top of h264dsp.c, before ff_h264dsp_init
-
 // No-op IDCT functions for motion_vectors_only mode
 static void h264_idct_add_noop(uint8_t *dst, int16_t *block, int stride) {
     memset(block, 0, 16 * sizeof(int16_t));

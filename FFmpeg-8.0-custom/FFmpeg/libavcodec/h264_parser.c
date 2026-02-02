@@ -597,7 +597,7 @@ static int h264_parse(AVCodecParserContext *s,
         // Initialize DSP here where we have access to avctx
         int motion_vectors_only = 0;
         if (avctx) 
-            motion_vectors_only = avctx->motion_vectors_only;  // YOUR CUSTOM FIELD
+            motion_vectors_only = avctx->motion_vectors_only;
 
         ff_h264dsp_init(&p->h264dsp, 8, 1, motion_vectors_only);
         
@@ -686,7 +686,7 @@ static av_cold int init(AVCodecParserContext *s)
     p->reference_dts = AV_NOPTS_VALUE;
     p->last_frame_num = INT_MAX;
     
-    //Louise: try not to init here
+    // Note: try not to init here (initialization starts in h264_parse)
     //ff_h264dsp_init(&p->h264dsp, 8, 1);
     return 0;
 }
