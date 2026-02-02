@@ -526,11 +526,6 @@ static int h264_frame_start(H264Context *h)
     release_unused_pictures(h, 1);
     h->cur_pic_ptr = NULL;
 
-    pic = h->cur_pic_ptr;
-    if (h->avctx->motion_vectors_only && pic) {
-        pic->f->data[0] = pic->f->data[1] = pic->f->data[2] = NULL;
-    }
-
     i = find_unused_picture(h);
     if (i < 0) {
         av_log(h->avctx, AV_LOG_ERROR, "no frame buffer available\n");
@@ -2469,9 +2464,6 @@ static int fill_filter_caches(const H264Context *h, H264SliceContext *sl, int mb
 
 static void loop_filter(const H264Context *h, H264SliceContext *sl, int start_x, int end_x)
 {
-    // Skip deblocking filter for motion vectors only mode
-    if (h->avctx->motion_vectors_only)
-        return;
         
     uint8_t *dest_y, *dest_cb, *dest_cr;
     int linesize, uvlinesize, mb_x, mb_y;
@@ -2681,7 +2673,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x - 1,
                              sl->mb_y, ER_MB_END);
                 if (sl->mb_x >= lf_x_start)
-                    loop_filter(h, sl, lf_x_start, sl->mb_x + 1);
+                    // Skip loop filter for motion vectors only mode
+                    if (!h->avctx->motion_vectors_only)
+                        loop_filter(h, sl, lf_x_start, sl->mb_x + 1);
                 goto finish;
             }
             if (sl->cabac.bytestream > sl->cabac.bytestream_end + 2 )
@@ -2697,7 +2691,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             if (++sl->mb_x >= h->mb_width) {
-                loop_filter(h, sl, lf_x_start, sl->mb_x);
+                // Skip loop filter for motion vectors only mode
+                if (!h->avctx->motion_vectors_only)
+                    loop_filter(h, sl, lf_x_start, sl->mb_x);
                 sl->mb_x = lf_x_start = 0;
                 decode_finish_row(h, sl);
                 ++sl->mb_y;
@@ -2714,7 +2710,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x - 1,
                              sl->mb_y, ER_MB_END);
                 if (sl->mb_x > lf_x_start)
-                    loop_filter(h, sl, lf_x_start, sl->mb_x);
+                    // Skip loop filter for motion vectors only mode
+                    if (!h->avctx->motion_vectors_only)
+                        loop_filter(h, sl, lf_x_start, sl->mb_x);
                 goto finish;
             }
         }
@@ -2758,7 +2756,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             if (++sl->mb_x >= h->mb_width) {
-                loop_filter(h, sl, lf_x_start, sl->mb_x);
+                // Skip loop filter for motion vectors only mode
+                if (!h->avctx->motion_vectors_only)
+                    loop_filter(h, sl, lf_x_start, sl->mb_x);
                 sl->mb_x = lf_x_start = 0;
                 decode_finish_row(h, sl);
                 ++sl->mb_y;
@@ -2794,7 +2794,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                     er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y,
                                  sl->mb_x - 1, sl->mb_y, ER_MB_END);
                     if (sl->mb_x > lf_x_start)
-                        loop_filter(h, sl, lf_x_start, sl->mb_x);
+                        // Skip loop filter for motion vectors only mode
+                        if (!h->avctx->motion_vectors_only) 
+                            loop_filter(h, sl, lf_x_start, sl->mb_x);
 
                     goto finish;
                 } else {
@@ -2872,17 +2874,20 @@ int ff_h264_execute_decode_slices(H264Context *h)
         if (h->postpone_filter) {
             h->postpone_filter = 0;
 
-            for (i = 0; i < context_count; i++) {
-                int y_end, x_end;
+            // Skip loop filter for motion vectors only mode
+            if (!h->avctx->motion_vectors_only) {
+                for (i = 0; i < context_count; i++) {
+                    int y_end, x_end;
 
-                sl = &h->slice_ctx[i];
-                y_end = FFMIN(sl->mb_y + 1, h->mb_height);
-                x_end = (sl->mb_y >= h->mb_height) ? h->mb_width : sl->mb_x;
+                    sl = &h->slice_ctx[i];
+                    y_end = FFMIN(sl->mb_y + 1, h->mb_height);
+                    x_end = (sl->mb_y >= h->mb_height) ? h->mb_width : sl->mb_x;
 
-                for (j = sl->resync_mb_y; j < y_end; j += 1 + FIELD_OR_MBAFF_PICTURE(h)) {
-                    sl->mb_y = j;
-                    loop_filter(h, sl, j > sl->resync_mb_y ? 0 : sl->resync_mb_x,
-                                j == y_end - 1 ? x_end : h->mb_width);
+                    for (j = sl->resync_mb_y; j < y_end; j += 1 + FIELD_OR_MBAFF_PICTURE(h)) {
+                        sl->mb_y = j;
+                        loop_filter(h, sl, j > sl->resync_mb_y ? 0 : sl->resync_mb_x,
+                                    j == y_end - 1 ? x_end : h->mb_width);
+                    }
                 }
             }
         }

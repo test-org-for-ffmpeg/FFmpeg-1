@@ -113,11 +113,11 @@ static void h264_chroma_dc_dequant_idct_noop(int16_t *block, int qmul) {
     memset(block, 0, 4 * sizeof(int16_t));
 }
 
-static void h264_loop_filter_noop() {
+static void h264_loop_filter_noop(void) {
     // Do nothing - no loop filtering needed for motion vectors
 }
 
-static void h264_weight_noop() {
+static void h264_weight_noop(void) {
     // Do nothing - no weighting needed for motion vectors  
 }
 
