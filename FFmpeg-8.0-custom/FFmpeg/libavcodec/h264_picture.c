@@ -73,10 +73,8 @@ static void h264_copy_picture_params(H264Picture *dst, const H264Picture *src)
 
     // SIMPLIFY: Skip hwaccel and decode error flags unconditionally for now
     // (These are rarely used and safe to skip for motion vector extraction)
-    av_refstruct_replace(&dst->hwaccel_picture_private,
-                          src->hwaccel_picture_private);
-
-    av_refstruct_replace(&dst->decode_error_flags, src->decode_error_flags);
+    av_refstruct_replace(&dst->hwaccel_picture_private, NULL);
+    av_refstruct_replace(&dst->decode_error_flags, NULL);
 
     dst->qscale_table = src->qscale_table;
     dst->mb_type      = src->mb_type;

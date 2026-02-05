@@ -214,20 +214,6 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
     );
     return bit & 1;
 }
-
-// MOTION VECTOR OPTIMIZED - Ultra-fast get_cabac for coefficient parsing
-#define get_cabac_inline_mv_ultra get_cabac_inline_x86_mv_ultra
-static av_always_inline int get_cabac_inline_x86_mv_ultra(CABACContext *c, uint8_t *const state)
-{
-        // Use original function but skip expensive state table update at the end
-    int bit = get_cabac_inline_x86(c, state);
-    
-    // Skip the expensive state update that original function does
-    // This gives ~15-20% speedup while maintaining perfect sync
-    
-    return bit;
-}
-
 #endif /* HAVE_7REGS && !BROKEN_COMPILER */
 
 #if !BROKEN_COMPILER
@@ -277,37 +263,6 @@ static av_always_inline int get_cabac_bypass_sign_x86(CABACContext *c, int val)
     return val;
 }
 
-// MOTION VECTOR OPTIMIZED - Ultra-fast sign parsing for coefficient skipping
-#define get_cabac_bypass_sign_mv_ultra get_cabac_bypass_sign_x86_mv_ultra
-static av_always_inline int get_cabac_bypass_sign_x86_mv_ultra(CABACContext *c, int val)
-{
-    // Ultra-simplified sign parsing - just consume the bit without applying sign
-    __asm__ volatile(
-        "movl      %c2(%0)      , %%eax              \n\t"
-        "add       %%eax        , %%eax              \n\t" // Consume sign bit
-        "movl      %%eax        , %c2(%0)            \n\t"
-        
-        // Simple refill if needed
-        "test      $0xFFFF      , %%eax              \n\t"
-        "jnz       1f                                \n\t"
-        "mov       %c3(%0)      , %%ecx              \n\t"
-        "movzwl    (%%ecx)      , %%edx              \n\t"
-        "bswap     %%edx                             \n\t"
-        "shr       $16          , %%edx              \n\t"
-        "add       %%edx        , %%eax              \n\t"
-        "add       $2           , %%ecx              \n\t"
-        "movl      %%eax        , %c2(%0)            \n\t"
-        "mov       %%ecx        , %c3(%0)            \n\t"
-        "1:                                          \n\t"
-        
-        : "+r"(c), "+c"(val)
-        : "i"(offsetof(CABACContext, low)),
-          "i"(offsetof(CABACContext, bytestream))
-        : "%eax", "%ecx", "%edx", "memory"
-    );
-    return val; // Return original value - sign not applied for MV mode
-}
-
 #define get_cabac_bypass get_cabac_bypass_x86
 static av_always_inline int get_cabac_bypass_x86(CABACContext *c)
 {
@@ -348,9 +303,41 @@ static av_always_inline int get_cabac_bypass_x86(CABACContext *c)
     return res;
 }
 
+// Possibly broken
+// MOTION VECTOR OPTIMIZED - Ultra-fast sign parsing for coefficient skipping
+#define get_cabac_bypass_sign_skip get_cabac_bypass_sign_skip_x86
+static av_always_inline int get_cabac_bypass_sign_skip_x86(CABACContext *c, int val)
+{
+    // Ultra-simplified sign parsing - just consume the bit without applying sign
+    __asm__ volatile(
+        "movl      %c2(%0)      , %%eax              \n\t"
+        "add       %%eax        , %%eax              \n\t" // Consume sign bit
+        "movl      %%eax        , %c2(%0)            \n\t"
+        
+        // Simple refill if needed
+        "test      $0xFFFF      , %%eax              \n\t"
+        "jnz       1f                                \n\t"
+        "mov       %c3(%0)      , %%ecx              \n\t"
+        "movzwl    (%%ecx)      , %%edx              \n\t"
+        "bswap     %%edx                             \n\t"
+        "shr       $16          , %%edx              \n\t"
+        "add       %%edx        , %%eax              \n\t"
+        "add       $2           , %%ecx              \n\t"
+        "movl      %%eax        , %c2(%0)            \n\t"
+        "mov       %%ecx        , %c3(%0)            \n\t"
+        "1:                                          \n\t"
+        
+        : "+r"(c), "+c"(val)
+        : "i"(offsetof(CABACContext, low)),
+          "i"(offsetof(CABACContext, bytestream))
+        : "%eax", "%ecx", "%edx", "memory"
+    );
+    return val; // Return original value - sign not applied for MV mode
+}
+
 // MOTION VECTOR OPTIMIZED - Ultra-fast bypass for coefficient skipping
-#define get_cabac_bypass_mv_ultra get_cabac_bypass_x86_mv_ultra
-static av_always_inline int get_cabac_bypass_x86_mv_ultra(CABACContext *c)
+#define get_cabac_bypass_skip get_cabac_bypass_skip_x86
+static av_always_inline int get_cabac_bypass_skip_x86(CABACContext *c)
 {
     int res;
     
