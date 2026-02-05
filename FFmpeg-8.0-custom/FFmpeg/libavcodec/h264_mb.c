@@ -799,6 +799,10 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
 
 void ff_h264_hl_decode_mb(const H264Context *h, H264SliceContext *sl)
 {
+    // Motion vectors already extracted during entropy decoding; Skip decoding
+    if (h->avctx->motion_vectors_only)
+        return;
+        
     const int mb_xy   = sl->mb_xy;
     const int mb_type = h->cur_pic.mb_type[mb_xy];
     int is_complex    = CONFIG_SMALL || sl->is_complex ||

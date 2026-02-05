@@ -439,7 +439,7 @@ typedef struct AVCodecContext {
     enum AVMediaType codec_type; /* see AVMEDIA_TYPE_xxx */
     const struct AVCodec  *codec;
     enum AVCodecID     codec_id; /* see AV_CODEC_ID_xxx */
-    int motion_vectors_only; // only motion vectors
+    int motion_vectors_only;
 
     /**
      * fourcc (LSB first, so "ABCD" -> ('D'<<24) + ('C'<<16) + ('B'<<8) + 'A').

@@ -676,8 +676,6 @@ static int decode_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
 
         /* the only case where decode data is not set should be decoders
          * that do not call ff_get_buffer() */
-        
-        // SKIP ASSERTION FOR MOTION VECTORS ONLY MODE
         if (!avctx->motion_vectors_only)
             av_assert0(frame->private_ref ||
                     !(avctx->codec->capabilities & AV_CODEC_CAP_DR1));

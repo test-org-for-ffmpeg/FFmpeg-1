@@ -2464,7 +2464,6 @@ static int fill_filter_caches(const H264Context *h, H264SliceContext *sl, int mb
 
 static void loop_filter(const H264Context *h, H264SliceContext *sl, int start_x, int end_x)
 {
-        
     uint8_t *dest_y, *dest_cb, *dest_cr;
     int linesize, uvlinesize, mb_x, mb_y;
     const int end_mb_y       = sl->mb_y + FRAME_MBAFF(h);
@@ -2637,6 +2636,18 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
         ff_h264_init_cabac_states(h, sl);
 
+        cabac_luma_residual_func decode_luma_residual = decode_cabac_luma_residual;
+        cabac_residual_dc_func decode_residual_dc = decode_cabac_residual_dc;
+        cabac_residual_dc_func decode_residual_dc_422 = decode_cabac_residual_dc_422;
+        cabac_residual_nondc_func decode_residual_nondc = decode_cabac_residual_nondc;
+
+        if (h->avctx->motion_vectors_only) {
+            decode_luma_residual = decode_cabac_luma_residual_skip;
+            decode_residual_dc = decode_cabac_residual_dc_skip;
+            decode_residual_nondc = decode_cabac_residual_nondc_skip;
+            decode_residual_dc_422 = decode_cabac_residual_dc_422_skip;
+        }
+
         for (;;) {
             int ret, eos;
             if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
@@ -2647,7 +2658,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 return AVERROR_INVALIDDATA;
             }
 
-            ret = ff_h264_decode_mb_cabac(h, sl);
+            ret = ff_h264_decode_mb_cabac(h, sl, decode_luma_residual, decode_residual_dc, decode_residual_dc_422, decode_residual_nondc);
 
             // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
@@ -2658,7 +2669,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
 
-                ret = ff_h264_decode_mb_cabac(h, sl);
+                ret = ff_h264_decode_mb_cabac(h, sl, decode_luma_residual, decode_residual_dc, decode_residual_dc_422, decode_residual_nondc);
 
                 // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
