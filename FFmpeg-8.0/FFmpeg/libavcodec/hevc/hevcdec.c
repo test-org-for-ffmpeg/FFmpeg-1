@@ -33,6 +33,7 @@
 #include "libavutil/internal.h"
 #include "libavutil/md5.h"
 #include "libavutil/mem.h"
+#include "libavutil/motion_vector.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/stereo3d.h"
@@ -3480,7 +3481,88 @@ static int verify_md5(HEVCContext *s, AVFrame *frame)
            s->poc, msg_buf);
 
     return err;
+}
+
+int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
+{
+    const HEVCPPS *pps = frame->pps;
+    const HEVCSPS *sps = pps->sps;
+    const int min_pu_size   = 1 << sps->log2_min_pu_size;
+    const int min_pu_width  = sps->min_pu_width;
+    const int min_pu_height = sps->min_pu_height;
+    const MvField *tab_mvf  = frame->tab_mvf;
+
+    AVFrameSideData *sd;
+    int num_mvs = 0;
+    int idx = 0;
+
+    /* First pass: count how many MV entries we need */
+    for (int y = 0; y < min_pu_height; y++) {
+        for (int x = 0; x < min_pu_width; x++) {
+            const MvField *mvf = &tab_mvf[y * min_pu_width + x];
+            if (mvf->pred_flag & PF_L0) num_mvs++;
+            if (mvf->pred_flag & PF_L1) num_mvs++;
+        }
     }
+
+    if (!num_mvs)
+        return 0;
+
+    sd = av_frame_new_side_data(frame->f, AV_FRAME_DATA_MOTION_VECTORS,
+                                num_mvs * sizeof(AVMotionVector));
+    if (!sd)
+        return AVERROR(ENOMEM);
+
+    AVMotionVector *mvs = (AVMotionVector *)sd->data;
+
+    /* Second pass: fill in the motion vectors */
+    for (int y = 0; y < min_pu_height; y++) {
+        for (int x = 0; x < min_pu_width; x++) {
+            const MvField *mvf = &tab_mvf[y * min_pu_width + x];
+
+            /* Skip intra-predicted or empty PUs */
+            if (!(mvf->pred_flag & (PF_L0 | PF_L1)))
+                continue;
+
+            for (int dir = 0; dir < 2; dir++) {
+                AVMotionVector *out;
+                int src_x, src_y;
+
+                if (!(mvf->pred_flag & (1 << dir)))
+                    continue;
+
+                out = &mvs[idx++];
+
+                src_x = x * min_pu_size;
+                src_y = y * min_pu_size;
+
+                out->w        = min_pu_size;
+                out->h        = min_pu_size;
+                /* src is the center of the block in the current frame */
+                out->src_x    = src_x + min_pu_size / 2;
+                out->src_y    = src_y + min_pu_size / 2;
+                /* dst is where the reference block is (integer-pel position) */
+                out->dst_x    = out->src_x + (mvf->mv[dir].x >> 2);
+                out->dst_y    = out->src_y + (mvf->mv[dir].y >> 2);
+                /* Raw quarter-pel MV components */
+                out->motion_x = mvf->mv[dir].x;
+                out->motion_y = mvf->mv[dir].y;
+                out->motion_scale = 4; /* HEVC uses quarter-pel precision */
+                out->flags    = 0;
+
+                /*
+                 * source: negative = L0 (past/backward), positive = L1 (future/forward)
+                 * Use the signed reference index convention matching H.264 export.
+                 */
+                out->source = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
+                                         :  (mvf->ref_idx[dir] + 1);
+            }
+        }
+    }
+
+    av_assert0(idx == num_mvs);
+    return 0;
+}
 
 static int hevc_frame_end(HEVCContext *s, HEVCLayerContext *l)
 {
