@@ -209,10 +209,9 @@ static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
                                    uint8_t *significant_coeff_ctx_base,
                                    int *index, x86_reg last_off){
     void *end= significant_coeff_ctx_base + max_coeff - 1;
-    int minusstart= -(intptr_t)significant_coeff_ctx_base;
-    int minusindex= 4-(intptr_t)index;
     int bit;
-    x86_reg coeff_count = 0;
+    x86_reg coeff_count;
+    x86_reg counter = 0;
 
 #ifdef BROKEN_RELOCATIONS
     void *tables;
@@ -226,52 +225,55 @@ static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
     __asm__ volatile(
         "3:                                     \n\t"
 
+        /* Decode significance flag for current coefficient position */
         BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%3", "%w3",
                              "%5", "%q5", "%k0", "%b0",
-                             "%c11(%6)", "%c12(%6)",
+                             "%c9(%6)", "%c10(%6)",
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%13")
+                             "%11")
 
         "test $1, %4                            \n\t"
-        " jz 4f                                 \n\t"
-        "add  %10, %1                           \n\t"
-        // "inc %0                                 \n\t"             // Increment coeff_count (We need this!)
+        " jnz 6f                                \n\t"
+
+        /* HOT PATH: not significant — fall through */
+        "4:                                     \n\t"
+        "add  $1, %1                            \n\t"
+        "cmp  %7, %1                            \n\t"
+        " jb 3b                                 \n\t"
+
+        /* End: implicit significant at last position */
+        "add  $1, %2                            \n\t"  /* counter++ (REGISTER!) */
+        "jmp 5f                                 \n\t"
+
+        /* COLD: significant coefficient */
+        "6:                                     \n\t"
+        "add  %8, %1                            \n\t"
 
         BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%3", "%w3",
                              "%5", "%q5", "%k0", "%b0",
-                             "%c11(%6)", "%c12(%6)",
+                             "%c9(%6)", "%c10(%6)",
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%13")
+                             "%11")
 
-        "sub  %10, %1                           \n\t"
-        "mov  %2, %0                            \n\t"
-        "movl %7, %%ecx                         \n\t"
-        "add  %1, %%"FF_REG_c"                  \n\t"
-        "movl %%ecx, (%0)                       \n\t"
+        "sub  %8, %1                            \n\t"
+        "add  $1, %2                            \n\t"  /* counter++ (REGISTER!) */
 
         "test $1, %4                            \n\t"
         " jnz 5f                                \n\t"
 
-        "add"FF_OPSIZE"  $4, %2                 \n\t"
+        "jmp 4b                                 \n\t"
 
-        "4:                                     \n\t"
-        "add  $1, %1                            \n\t"
-        "cmp  %8, %1                            \n\t"
-        " jb 3b                                 \n\t"
-        "mov  %2, %0                            \n\t"
-        "movl %7, %%ecx                         \n\t"
-        "add  %1, %%"FF_REG_c"                  \n\t"
-        "movl %%ecx, (%0)                       \n\t"
         "5:                                     \n\t"
-        "add  %9, %k0                           \n\t"
-        "shr $2, %k0                            \n\t"
-        : "=&q"(coeff_count), "+r"(significant_coeff_ctx_base), "+m"(index),
+        "mov  %k2, %k0                           \n\t"
+ 
+        : "=&q"(coeff_count), "+r"(significant_coeff_ctx_base),
+          "+r"(counter),                                /* "+r" not "+m"! */
           "+&r"(c->low), "=&r"(bit), "+&r"(c->range)
-        : "r"(c), "m"(minusstart), "m"(end), "m"(minusindex), "m"(last_off),
+        : "r"(c), "m"(end), "m"(last_off),
           "i"(offsetof(CABACContext, bytestream)),
           "i"(offsetof(CABACContext, bytestream_end))
           TABLES_ARG
@@ -285,11 +287,11 @@ static int decode_significance_8x8_skip_x86(CABACContext *c,
                                            uint8_t *significant_coeff_ctx_base,
                                            int *index, uint8_t *last_coeff_ctx_base,
                                            const uint8_t *sig_off){
-    int minusindex= 4-(intptr_t)index;
     int bit;
     x86_reg coeff_count;
     x86_reg last=0;
     x86_reg state;
+    x86_reg counter = 0;
 
 #ifdef BROKEN_RELOCATIONS
     void *tables;
@@ -305,59 +307,59 @@ static int decode_significance_8x8_skip_x86(CABACContext *c,
         "mov %1, %6                             \n\t"
         "3:                                     \n\t"
 
-        "mov %10, %0                            \n\t"
+        /* Look up context offset for this 8x8 position from sig_off table */
+        "mov %9, %0                             \n\t"
         "movzb (%0, %6), %6                     \n\t"
-        "add %9, %6                             \n\t"
+        "add %8, %6                             \n\t"
 
+        /* Decode significance flag */
         BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
                              "%5", "%q5", "%k0", "%b0",
-                             "%c12(%7)", "%c13(%7)",
+                             "%c11(%7)", "%c12(%7)",
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%15")
+                             "%14")
 
         "mov %1, %6                             \n\t"
         "test $1, %4                            \n\t"
         " jz 4f                                 \n\t"
 
 #ifdef BROKEN_RELOCATIONS
-        "movzb %c14(%15, %q6), %6\n\t"
+        "movzb %c13(%14, %q6), %6\n\t"
 #else
-        "movzb "MANGLE(ff_h264_cabac_tables)"+%c14(%6), %6\n\t"
+        "movzb "MANGLE(ff_h264_cabac_tables)"+%c13(%6), %6\n\t"
 #endif
-        "add %11, %6                            \n\t"
+        "add %10, %6                            \n\t"
 
         BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
                              "%5", "%q5", "%k0", "%b0",
-                             "%c12(%7)", "%c13(%7)",
+                             "%c11(%7)", "%c12(%7)",
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%15")
+                             "%14")
 
-        "mov %2, %0                             \n\t"
         "mov %1, %6                             \n\t"
-        "mov %k6, (%0)                          \n\t"
+        "add $1, %2                             \n\t"
 
         "test $1, %4                            \n\t"
         " jnz 5f                                \n\t"
-
-        "add"FF_OPSIZE"  $4, %2                 \n\t"
 
         "4:                                     \n\t"
         "add $1, %6                             \n\t"
         "mov %6, %1                             \n\t"
         "cmp $63, %6                            \n\t"
         " jb 3b                                 \n\t"
-        "mov %2, %0                             \n\t"
-        "mov %k6, (%0)                          \n\t"
+
+        /* Fell through: position 63 implicitly significant */
+        "add $1, %2                             \n\t"
+
         "5:                                     \n\t"
-        "addl %8, %k0                           \n\t"
-        "shr $2, %k0                            \n\t"
-        : "=&q"(coeff_count), "+"REG64(last), "+"REG64(index), "+&r"(c->low),
+        "mov %k2, %k0                           \n\t"
+        : "=&q"(coeff_count), "+"REG64(last), "+r"(counter), "+&r"(c->low),
           "=&r"(bit), "+&r"(c->range), "=&r"(state)
-        : "r"(c), "m"(minusindex), "m"(significant_coeff_ctx_base),
+        : "r"(c), "m"(significant_coeff_ctx_base),
           REG64(sig_off), REG64(last_coeff_ctx_base),
           "i"(offsetof(CABACContext, bytestream)),
           "i"(offsetof(CABACContext, bytestream_end)),

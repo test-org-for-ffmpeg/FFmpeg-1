@@ -563,6 +563,7 @@ typedef struct HEVCContext {
     int is_nalff;           ///< this flag is != 0 if bitstream is encapsulated
                             ///< as a format defined in 14496-15
     int apply_defdispwin;
+    int motion_vectors_only;
 
     // multi-layer AVOptions
     int         *view_ids;
@@ -644,6 +645,7 @@ int ff_hevc_cbf_cb_cr_decode(HEVCLocalContext *lc, int trafo_depth);
 int ff_hevc_cbf_luma_decode(HEVCLocalContext *lc, int trafo_depth);
 int ff_hevc_log2_res_scale_abs(HEVCLocalContext *lc, int idx);
 int ff_hevc_res_scale_sign_flag(HEVCLocalContext *lc, int idx);
+int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame);
 
 /**
  * Get the number of candidate references for the current frame.

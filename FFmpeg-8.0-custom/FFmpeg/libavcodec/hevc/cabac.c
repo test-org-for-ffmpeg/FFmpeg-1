@@ -1002,13 +1002,9 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
     int x_cg_last_sig, y_cg_last_sig;
 
     const uint8_t *scan_x_cg, *scan_y_cg, *scan_x_off, *scan_y_off;
+    
+    const int mv_only = s->motion_vectors_only;
 
-    ptrdiff_t stride = s->cur_frame->f->linesize[c_idx];
-    int hshift = sps->hshift[c_idx];
-    int vshift = sps->vshift[c_idx];
-    uint8_t *dst = &s->cur_frame->f->data[c_idx][(y0 >> vshift) * stride +
-                                          ((x0 >> hshift) << sps->pixel_shift)];
-    int16_t *coeffs = (int16_t*)(c_idx ? lc->edge_emu_buffer2 : lc->edge_emu_buffer);
     uint8_t significant_coeff_group_flag[8][8] = {{0}};
     int explicit_rdpcm_flag = 0;
     int explicit_rdpcm_dir_flag;
@@ -1022,10 +1018,22 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
     int pred_mode_intra = (c_idx == 0) ? lc->tu.intra_pred_mode :
                                          lc->tu.intra_pred_mode_c;
 
-    memset(coeffs, 0, trafo_size * trafo_size * sizeof(int16_t));
-
+    ptrdiff_t stride = 0;
+    int hshift = 0, vshift = 0;
+    uint8_t *dst = NULL;
+    int16_t *coeffs = NULL;
+ 
+    if (!mv_only) {
+        stride = s->cur_frame->f->linesize[c_idx];
+        hshift = sps->hshift[c_idx];
+        vshift = sps->vshift[c_idx];
+        dst = &s->cur_frame->f->data[c_idx][(y0 >> vshift) * stride +
+                                             ((x0 >> hshift) << sps->pixel_shift)];
+        coeffs = (int16_t*)(c_idx ? lc->edge_emu_buffer2 : lc->edge_emu_buffer);
+        memset(coeffs, 0, trafo_size * trafo_size * sizeof(int16_t));
+    } 
     // Derive QP for dequant
-    if (!lc->cu.cu_transquant_bypass_flag) {
+    if (!lc->cu.cu_transquant_bypass_flag && !mv_only) {
         static const int qp_c[] = { 29, 30, 31, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37 };
         static const uint8_t rem6[51 + 4 * 6 + 1] = {
             0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2,
@@ -1094,6 +1102,15 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
             if (log2_trafo_size >= 4)
                 dc_scale = sl->sl_dc[log2_trafo_size - 4][matrix_id];
         }
+    } else if (mv_only) {
+        /* In MV-only mode, we still need to parse transform_skip_flag
+         * if it's in the bitstream (CABAC sync) */
+        if (!lc->cu.cu_transquant_bypass_flag &&
+            pps->transform_skip_enabled_flag &&
+            log2_trafo_size <= pps->log2_max_transform_skip_block_size) {
+            transform_skip_flag = hevc_transform_skip_flag_decode(lc, c_idx);
+        }
+        shift = add = scale = scale_m = dc_scale = qp = 0;
     } else {
         shift        = 0;
         add          = 0;
@@ -1400,6 +1417,15 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
                         rice_init = 1;
                     }
                 }
+
+                if (mv_only) {
+                    /* Skip sign application, dequant, and coefficient storage */
+                    if (pps->sign_data_hiding_flag && sign_hidden)
+                        sum_abs += trans_coeff_level;
+                    coeff_sign_flag <<= 1;
+                    continue;
+                }
+
                 if (pps->sign_data_hiding_flag && sign_hidden) {
                     sum_abs += trans_coeff_level;
                     if (n == first_nz_pos_in_cg && (sum_abs&1))
@@ -1435,6 +1461,9 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
             }
         }
     }
+
+    if (mv_only)
+        return;
 
     if (lc->cu.cu_transquant_bypass_flag) {
         if (explicit_rdpcm_flag || (sps->implicit_rdpcm_enabled &&

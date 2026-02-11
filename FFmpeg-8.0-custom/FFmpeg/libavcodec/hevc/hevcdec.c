@@ -33,6 +33,7 @@
 #include "libavutil/internal.h"
 #include "libavutil/md5.h"
 #include "libavutil/mem.h"
+#include "libavutil/motion_vector.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/stereo3d.h"
@@ -1308,7 +1309,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
     const int log2_trafo_size_c = log2_trafo_size - sps->hshift[1];
     int i;
 
-    if (lc->cu.pred_mode == MODE_INTRA) {
+    if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
         int trafo_size = 1 << log2_trafo_size;
         ff_hevc_set_neighbour_available(lc, x0, y0, trafo_size, trafo_size, sps->log2_ctb_size);
 
@@ -1396,7 +1397,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
                 hls_cross_component_pred(lc, 0);
             }
             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
-                if (lc->cu.pred_mode == MODE_INTRA) {
+                if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
                     ff_hevc_set_neighbour_available(lc, x0, y0 + (i << log2_trafo_size_c),
                                                     trafo_size_h, trafo_size_v, sps->log2_ctb_size);
                     s->hpc.intra_pred[log2_trafo_size_c - 2](lc, pps, x0, y0 + (i << log2_trafo_size_c), 1);
@@ -1404,7 +1405,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
                 if (cbf_cb[i])
                     ff_hevc_hls_residual_coding(lc, pps, x0, y0 + (i << log2_trafo_size_c),
                                                 log2_trafo_size_c, scan_idx_c, 1);
-                else
+                else if (!s->motion_vectors_only)
                     if (lc->tu.cross_pf) {
                         ptrdiff_t stride = s->cur_frame->f->linesize[1];
                         int hshift = sps->hshift[1];
@@ -1426,7 +1427,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
                 hls_cross_component_pred(lc, 1);
             }
             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
-                if (lc->cu.pred_mode == MODE_INTRA) {
+                if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
                     ff_hevc_set_neighbour_available(lc, x0, y0 + (i << log2_trafo_size_c),
                                                     trafo_size_h, trafo_size_v, sps->log2_ctb_size);
                     s->hpc.intra_pred[log2_trafo_size_c - 2](lc, pps, x0, y0 + (i << log2_trafo_size_c), 2);
@@ -1434,7 +1435,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
                 if (cbf_cr[i])
                     ff_hevc_hls_residual_coding(lc, pps, x0, y0 + (i << log2_trafo_size_c),
                                                 log2_trafo_size_c, scan_idx_c, 2);
-                else
+                else if (!s->motion_vectors_only)
                     if (lc->tu.cross_pf) {
                         ptrdiff_t stride = s->cur_frame->f->linesize[2];
                         int hshift = sps->hshift[2];
@@ -1455,7 +1456,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
             int trafo_size_h = 1 << (log2_trafo_size + 1);
             int trafo_size_v = 1 << (log2_trafo_size + sps->vshift[1]);
             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
-                if (lc->cu.pred_mode == MODE_INTRA) {
+                if (lc->cu.pred_mode == MODE_INTRA &&!s->motion_vectors_only) {
                     ff_hevc_set_neighbour_available(lc, xBase, yBase + (i << log2_trafo_size),
                                                     trafo_size_h, trafo_size_v, sps->log2_ctb_size);
                     s->hpc.intra_pred[log2_trafo_size - 2](lc, pps, xBase, yBase + (i << log2_trafo_size), 1);
@@ -1465,7 +1466,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
                                                 log2_trafo_size, scan_idx_c, 1);
             }
             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
-                if (lc->cu.pred_mode == MODE_INTRA) {
+                if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
                     ff_hevc_set_neighbour_available(lc, xBase, yBase + (i << log2_trafo_size),
                                                 trafo_size_h, trafo_size_v, sps->log2_ctb_size);
                     s->hpc.intra_pred[log2_trafo_size - 2](lc, pps, xBase, yBase + (i << log2_trafo_size), 2);
@@ -1475,7 +1476,7 @@ static int hls_transform_unit(HEVCLocalContext *lc,
                                                 log2_trafo_size, scan_idx_c, 2);
             }
         }
-    } else if (sps->chroma_format_idc && lc->cu.pred_mode == MODE_INTRA) {
+    } else if (sps->chroma_format_idc && lc->cu.pred_mode == MODE_INTRA &&!s->motion_vectors_only) {
         if (log2_trafo_size > 2 || sps->chroma_format_idc == 3) {
             int trafo_size_h = 1 << (log2_trafo_size_c + sps->hshift[1]);
             int trafo_size_v = 1 << (log2_trafo_size_c + sps->vshift[1]);
@@ -1632,21 +1633,24 @@ do {                                                                            
                                  blk_idx, cbf_luma, cbf_cb, cbf_cr);
         if (ret < 0)
             return ret;
-        // TODO: store cbf_luma somewhere else
-        if (cbf_luma) {
-            int i, j;
-            for (i = 0; i < (1 << log2_trafo_size); i += min_tu_size)
-                for (j = 0; j < (1 << log2_trafo_size); j += min_tu_size) {
-                    int x_tu = (x0 + j) >> log2_min_tu_size;
-                    int y_tu = (y0 + i) >> log2_min_tu_size;
-                    l->cbf_luma[y_tu * min_tu_width + x_tu] = 1;
-                }
-        }
-        if (!s->sh.disable_deblocking_filter_flag) {
-            ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_trafo_size);
-            if (pps->transquant_bypass_enable_flag &&
-                lc->cu.cu_transquant_bypass_flag)
-                set_deblocking_bypass(l->is_pcm, sps, x0, y0, log2_trafo_size);
+
+        if (!s->motion_vectors_only) {
+            // TODO: store cbf_luma somewhere else
+            if (cbf_luma) {
+                int i, j;
+                for (i = 0; i < (1 << log2_trafo_size); i += min_tu_size)
+                    for (j = 0; j < (1 << log2_trafo_size); j += min_tu_size) {
+                        int x_tu = (x0 + j) >> log2_min_tu_size;
+                        int y_tu = (y0 + i) >> log2_min_tu_size;
+                        l->cbf_luma[y_tu * min_tu_width + x_tu] = 1;
+                    }
+            }
+            if (!s->sh.disable_deblocking_filter_flag) {
+                ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_trafo_size);
+                if (pps->transquant_bypass_enable_flag &&
+                    lc->cu.cu_transquant_bypass_flag)
+                    set_deblocking_bypass(l->is_pcm, sps, x0, y0, log2_trafo_size);
+            }
         }
     }
     return 0;
@@ -1657,26 +1661,30 @@ static int hls_pcm_sample(HEVCLocalContext *lc, const HEVCLayerContext *l,
 {
     const HEVCContext *const s = lc->parent;
     const HEVCSPS   *const sps = pps->sps;
-    GetBitContext gb;
+
     int cb_size   = 1 << log2_cb_size;
-    ptrdiff_t stride0 = s->cur_frame->f->linesize[0];
-    ptrdiff_t stride1 = s->cur_frame->f->linesize[1];
-    ptrdiff_t stride2 = s->cur_frame->f->linesize[2];
-    uint8_t *dst0 = &s->cur_frame->f->data[0][y0 * stride0 + (x0 << sps->pixel_shift)];
-    uint8_t *dst1 = &s->cur_frame->f->data[1][(y0 >> sps->vshift[1]) * stride1 + ((x0 >> sps->hshift[1]) << sps->pixel_shift)];
-    uint8_t *dst2 = &s->cur_frame->f->data[2][(y0 >> sps->vshift[2]) * stride2 + ((x0 >> sps->hshift[2]) << sps->pixel_shift)];
 
     int length         = cb_size * cb_size * sps->pcm.bit_depth +
                          (((cb_size >> sps->hshift[1]) * (cb_size >> sps->vshift[1])) +
                           ((cb_size >> sps->hshift[2]) * (cb_size >> sps->vshift[2]))) *
                           sps->pcm.bit_depth_chroma;
     const uint8_t *pcm = skip_bytes(&lc->cc, (length + 7) >> 3);
-    int ret;
 
-    if (!s->sh.disable_deblocking_filter_flag)
+    if (!s->sh.disable_deblocking_filter_flag && !s->motion_vectors_only)
         ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_cb_size);
 
-    ret = init_get_bits(&gb, pcm, length);
+    if (s->motion_vectors_only)
+        return 0;  /* Skip pixel writing entirely */                
+
+    GetBitContext gb;
+    ptrdiff_t stride0 = s->cur_frame->f->linesize[0];
+    ptrdiff_t stride1 = s->cur_frame->f->linesize[1];
+    ptrdiff_t stride2 = s->cur_frame->f->linesize[2];
+    uint8_t *dst0 = &s->cur_frame->f->data[0][y0 * stride0 + (x0 << sps->pixel_shift)];
+    uint8_t *dst1 = &s->cur_frame->f->data[1][(y0 >> sps->vshift[1]) * stride1 + ((x0 >> sps->hshift[1]) << sps->pixel_shift)];
+    uint8_t *dst2 = &s->cur_frame->f->data[2][(y0 >> sps->vshift[2]) * stride2 + ((x0 >> sps->hshift[2]) << sps->pixel_shift)];
+    
+    int ret = init_get_bits(&gb, pcm, length);
     if (ret < 0)
         return ret;
 
@@ -2108,10 +2116,6 @@ static void hls_prediction_unit(HEVCLocalContext *lc,
     MvField *tab_mvf = s->cur_frame->tab_mvf;
     const RefPicList *refPicList = s->cur_frame->refPicList;
     const HEVCFrame *ref0 = NULL, *ref1 = NULL;
-    const int *linesize = s->cur_frame->f->linesize;
-    uint8_t *dst0 = s->cur_frame->f->data[0] + y0 * linesize[0] + (x0 << sps->pixel_shift);
-    uint8_t *dst1 = POS(1, x0, y0);
-    uint8_t *dst2 = POS(2, x0, y0);
     int log2_min_cb_size = sps->log2_min_cb_size;
     int min_cb_width     = sps->min_cb_width;
     int x_cb             = x0 >> log2_min_cb_size;
@@ -2143,6 +2147,14 @@ static void hls_prediction_unit(HEVCLocalContext *lc,
     for (j = 0; j < nPbH >> sps->log2_min_pu_size; j++)
         for (i = 0; i < nPbW >> sps->log2_min_pu_size; i++)
             tab_mvf[(y_pu + j) * min_pu_width + x_pu + i] = current_mv;
+
+    if (s->motion_vectors_only)
+       return;
+
+    const int *linesize = s->cur_frame->f->linesize;
+    uint8_t *dst0 = s->cur_frame->f->data[0] + y0 * linesize[0] + (x0 << sps->pixel_shift);
+    uint8_t *dst1 = POS(1, x0, y0);
+    uint8_t *dst2 = POS(2, x0, y0);
 
     if (current_mv.pred_flag & PF_L0) {
         ref0 = refPicList[0].ref[current_mv.ref_idx[0]];
@@ -2471,7 +2483,7 @@ static int hls_coding_unit(HEVCLocalContext *lc, const HEVCContext *s,
                             x0, y0, cb_size, cb_size, log2_cb_size, 0, idx);
         intra_prediction_unit_default_value(lc, l, sps, x0, y0, log2_cb_size);
 
-        if (!s->sh.disable_deblocking_filter_flag)
+        if (!s->sh.disable_deblocking_filter_flag && !s->motion_vectors_only)
             ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_cb_size);
     } else {
         int pcm_flag = 0;
@@ -2576,7 +2588,7 @@ static int hls_coding_unit(HEVCLocalContext *lc, const HEVCContext *s,
                 if (ret < 0)
                     return ret;
             } else {
-                if (!s->sh.disable_deblocking_filter_flag)
+                if (!s->sh.disable_deblocking_filter_flag && !s->motion_vectors_only)
                     ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_cb_size);
             }
         }
@@ -2776,9 +2788,11 @@ static int hls_decode_entry(HEVCContext *s, GetBitContext *gb)
         hls_sao_param(lc, l, pps, sps,
                       x_ctb >> sps->log2_ctb_size, y_ctb >> sps->log2_ctb_size);
 
-        l->deblock[ctb_addr_rs].beta_offset = s->sh.beta_offset;
-        l->deblock[ctb_addr_rs].tc_offset   = s->sh.tc_offset;
-        l->filter_slice_edges[ctb_addr_rs]  = s->sh.slice_loop_filter_across_slices_enabled_flag;
+        if (!s->motion_vectors_only) {
+            l->deblock[ctb_addr_rs].beta_offset = s->sh.beta_offset;
+            l->deblock[ctb_addr_rs].tc_offset   = s->sh.tc_offset;
+            l->filter_slice_edges[ctb_addr_rs]  = s->sh.slice_loop_filter_across_slices_enabled_flag;
+        }
 
         more_data = hls_coding_quadtree(lc, l, pps, sps, x_ctb, y_ctb, sps->log2_ctb_size, 0);
         if (more_data < 0) {
@@ -2789,10 +2803,12 @@ static int hls_decode_entry(HEVCContext *s, GetBitContext *gb)
 
         ctb_addr_ts++;
         ff_hevc_save_states(lc, pps, ctb_addr_ts);
-        ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
+        if (!s->motion_vectors_only)
+            ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
     }
 
-    if (x_ctb + ctb_size >= sps->width &&
+    if (!s->motion_vectors_only &&
+        x_ctb + ctb_size >= sps->width &&
         y_ctb + ctb_size >= sps->height)
         ff_hevc_hls_filter(lc, l, pps, x_ctb, y_ctb, ctb_size);
 
@@ -2862,7 +2878,8 @@ static int hls_decode_entry_wpp(AVCodecContext *avctx, void *hevc_lclist,
 
         ff_hevc_save_states(lc, pps, ctb_addr_ts);
         ff_thread_progress_report(&s->wpp_progress[ctb_row], ++progress);
-        ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
+        if (!s->motion_vectors_only)
+            ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
 
         if (!more_data && (x_ctb+ctb_size) < sps->width && ctb_row != s->sh.num_entry_point_offsets) {
             /* Casting const away here is safe, because it is an atomic operation. */
@@ -2872,7 +2889,8 @@ static int hls_decode_entry_wpp(AVCodecContext *avctx, void *hevc_lclist,
         }
 
         if ((x_ctb+ctb_size) >= sps->width && (y_ctb+ctb_size) >= sps->height ) {
-            ff_hevc_hls_filter(lc, l, pps, x_ctb, y_ctb, ctb_size);
+            if (!s->motion_vectors_only)
+                ff_hevc_hls_filter(lc, l, pps, x_ctb, y_ctb, ctb_size);
             ff_thread_progress_report(&s->wpp_progress[ctb_row], INT_MAX);
             return ctb_addr_ts;
         }
@@ -3344,7 +3362,8 @@ static int hevc_frame_start(HEVCContext *s, HEVCLayerContext *l,
     else
         s->cur_frame->f->flags &= ~AV_FRAME_FLAG_KEY;
 
-    s->cur_frame->needs_fg = ((s->sei.common.film_grain_characteristics &&
+    s->cur_frame->needs_fg = !s->motion_vectors_only &&
+                             ((s->sei.common.film_grain_characteristics &&
                                s->sei.common.film_grain_characteristics->present) ||
                               s->sei.common.aom_film_grain.enable) &&
         !(s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_FILM_GRAIN) &&
@@ -3480,13 +3499,101 @@ static int verify_md5(HEVCContext *s, AVFrame *frame)
            s->poc, msg_buf);
 
     return err;
+}
+
+int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
+{
+    const HEVCPPS *pps = frame->pps;
+    const HEVCSPS *sps = pps->sps;
+    const int min_pu_size   = 1 << sps->log2_min_pu_size;
+    const int min_pu_width  = sps->min_pu_width;
+    const int min_pu_height = sps->min_pu_height;
+    const MvField *tab_mvf  = frame->tab_mvf;
+
+    AVFrameSideData *sd;
+    int num_mvs = 0;
+    int idx = 0;
+
+    /* First pass: count how many MV entries we need */
+    for (int y = 0; y < min_pu_height; y++) {
+        for (int x = 0; x < min_pu_width; x++) {
+            const MvField *mvf = &tab_mvf[y * min_pu_width + x];
+            if (mvf->pred_flag & PF_L0) num_mvs++;
+            if (mvf->pred_flag & PF_L1) num_mvs++;
+        }
     }
+
+    if (!num_mvs)
+        return 0;
+
+    sd = av_frame_new_side_data(frame->f, AV_FRAME_DATA_MOTION_VECTORS,
+                                num_mvs * sizeof(AVMotionVector));
+    if (!sd)
+        return AVERROR(ENOMEM);
+
+    AVMotionVector *mvs = (AVMotionVector *)sd->data;
+
+    /* Second pass: fill in the motion vectors */
+    for (int y = 0; y < min_pu_height; y++) {
+        for (int x = 0; x < min_pu_width; x++) {
+            const MvField *mvf = &tab_mvf[y * min_pu_width + x];
+
+            /* Skip intra-predicted or empty PUs */
+            if (!(mvf->pred_flag & (PF_L0 | PF_L1)))
+                continue;
+
+            for (int dir = 0; dir < 2; dir++) {
+                AVMotionVector *out;
+                int src_x, src_y;
+
+                if (!(mvf->pred_flag & (1 << dir)))
+                    continue;
+
+                out = &mvs[idx++];
+
+                src_x = x * min_pu_size;
+                src_y = y * min_pu_size;
+
+                out->w        = min_pu_size;
+                out->h        = min_pu_size;
+                /* src is the center of the block in the current frame */
+                out->src_x    = src_x + min_pu_size / 2;
+                out->src_y    = src_y + min_pu_size / 2;
+                /* dst is where the reference block is (integer-pel position) */
+                out->dst_x    = out->src_x + (mvf->mv[dir].x >> 2);
+                out->dst_y    = out->src_y + (mvf->mv[dir].y >> 2);
+                /* Raw quarter-pel MV components */
+                out->motion_x = mvf->mv[dir].x;
+                out->motion_y = mvf->mv[dir].y;
+                out->motion_scale = 4; /* HEVC uses quarter-pel precision */
+                out->flags    = 0;
+
+                /*
+                 * source: negative = L0 (past/backward), positive = L1 (future/forward)
+                 * Use the signed reference index convention matching H.264 export.
+                 */
+                out->source = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
+                                         :  (mvf->ref_idx[dir] + 1);
+            }
+        }
+    }
+
+    av_assert0(idx == num_mvs);
+    return 0;
+}
 
 static int hevc_frame_end(HEVCContext *s, HEVCLayerContext *l)
 {
     HEVCFrame *out = l->cur_frame;
     const AVFilmGrainParams *fgp;
     av_unused int ret;
+
+    if (s->motion_vectors_only) {
+        s->sei.picture_hash.is_md5 = 0;
+        av_log(s->avctx, AV_LOG_DEBUG, "MV-only: Decoded frame with POC %zu/%d.\n",
+               l - s->layers, s->poc);
+        return 0;
+    }
 
     if (out->needs_fg) {
         av_assert0(out->frame_grain->buf[0]);
@@ -3833,6 +3940,7 @@ static int hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     AVCodecInternal *avci = avctx->internal;
     AVPacket       *avpkt = avci->in_pkt;
 
+    s->motion_vectors_only = avctx->motion_vectors_only;
     int ret;
     uint8_t *sd;
     size_t sd_size;
@@ -4208,6 +4316,8 @@ static const AVOption options[] = {
         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
     { "strict-displaywin", "strictly apply default display window size", OFFSET(apply_defdispwin),
         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
+    { "motion_vectors_only", "Skip pixel reconstruction, only extract motion vectors",
+        OFFSET(motion_vectors_only), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
     { "view_ids", "Array of view IDs that should be decoded and output; a single -1 to decode all views",
         .offset = OFFSET(view_ids), .type = AV_OPT_TYPE_INT | AV_OPT_TYPE_FLAG_ARRAY,
         .min = -1, .max = INT_MAX, .flags = PAR },

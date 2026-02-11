@@ -763,12 +763,11 @@ int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
     trailing_ones= coeff_token&3;
     av_assert2(total_coeff<=16);
 
-    /* parse trailing one signs (3 bits) but do not store */
-    i = show_bits(gb, 3);
+    /* consume trailing one sign bits from the bitstream (not stored) */
     skip_bits(gb, trailing_ones);
 
     if(trailing_ones<total_coeff) {
-        int mask, prefix;
+        int prefix;
         int suffix_length = total_coeff > 10 & trailing_ones < 3;
         int bitsi= show_bits(gb, LEVEL_TAB_BITS);
         int level_code= cavlc_level_tab[suffix_length][bitsi][0];
@@ -804,7 +803,6 @@ int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
             if(trailing_ones < 3) level_code += 2;
 
             suffix_length = 2;
-            mask= -(level_code&1);
         }else{
             level_code += ((level_code>>31)|1) & -(trailing_ones < 3);
 
@@ -835,8 +833,6 @@ int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
                     }
                     level_code += get_bits(gb, prefix-3);
                 }
-                mask= -(level_code&1);
-                level_code= (((2+level_code)>>1) ^ mask) - mask;
             }
             suffix_length+= suffix_limit[suffix_length] + level_code > 2U*suffix_limit[suffix_length];
         }
@@ -861,34 +857,12 @@ int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
 
     /* Now consume run_before VLCs exactly as the normal function would,
      * update scantable accordingly, but do not write coefficients anywhere. */
-    scantable += zeros_left + total_coeff - 1;
-
-    if(n >= LUMA_DC_BLOCK_INDEX){
-        /* for luma dc/AC blocks: consume run_before values to move scantable */
-        for(i=1;i<total_coeff && zeros_left > 0;i++) {
-            if(zeros_left < 7)
-                run_before = get_vlc2(gb, run_vlc[zeros_left], RUN_VLC_BITS, 1);
-            else
-                run_before = get_vlc2(gb, run7_vlc_table, RUN7_VLC_BITS, 2);
-            zeros_left -= run_before;
-            scantable -= 1 + run_before;
-        }
-        for(;i<total_coeff;i++) {
-            scantable--;
-        }
-    }else{
-        /* chroma DC path: same consumption but no dequant/store */
-        for(i=1;i<total_coeff && zeros_left > 0;i++) {
-            if(zeros_left < 7)
-                run_before = get_vlc2(gb, run_vlc[zeros_left], RUN_VLC_BITS, 1);
-            else
-                run_before = get_vlc2(gb, run7_vlc_table, RUN7_VLC_BITS, 2);
-            zeros_left -= run_before;
-            scantable -= 1 + run_before;
-        }
-        for(;i<total_coeff;i++) {
-            scantable--;
-        }
+    for(i=1;i<total_coeff && zeros_left > 0;i++) {
+        if(zeros_left < 7)
+            run_before = get_vlc2(gb, run_vlc[zeros_left], RUN_VLC_BITS, 1);
+        else
+            run_before = get_vlc2(gb, run7_vlc_table, RUN7_VLC_BITS, 2);
+        zeros_left -= run_before;
     }
 
     if(zeros_left<0){
