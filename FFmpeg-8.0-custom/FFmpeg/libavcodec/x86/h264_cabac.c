@@ -118,7 +118,6 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
     return coeff_count;
 }
 
-
 #define decode_significance_8x8 decode_significance_8x8_x86
 static int decode_significance_8x8_x86(CABACContext *c,
                                        uint8_t *significant_coeff_ctx_base,

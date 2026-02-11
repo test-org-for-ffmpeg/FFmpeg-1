@@ -1046,11 +1046,13 @@ static int h264_slice_header_init(H264Context *h)
 
     ff_h264dsp_init(&h->h264dsp, sps->bit_depth_luma,
                     sps->chroma_format_idc, h->avctx->motion_vectors_only);
-    ff_h264chroma_init(&h->h264chroma, sps->bit_depth_chroma);
-    ff_h264qpel_init(&h->h264qpel, sps->bit_depth_luma);
-    ff_h264_pred_init(&h->hpc, AV_CODEC_ID_H264, sps->bit_depth_luma,
-                      sps->chroma_format_idc);
-    ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
+    // if (!h->avctx->motion_vectors_only) {
+        ff_h264chroma_init(&h->h264chroma, sps->bit_depth_chroma);
+        ff_h264qpel_init(&h->h264qpel, sps->bit_depth_luma);
+        ff_h264_pred_init(&h->hpc, AV_CODEC_ID_H264, sps->bit_depth_luma,
+                        sps->chroma_format_idc);
+        ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
+    // }
 
     if (!HAVE_THREADS || !(h->avctx->active_thread_type & FF_THREAD_SLICE)) {
         ff_h264_slice_context_init(h, &h->slice_ctx[0]);
@@ -1594,6 +1596,7 @@ static int h264_field_start(H264Context *h, const H264SliceContext *sl,
                 if (h->short_ref[0]->field_picture)
                     ff_thread_report_progress(&h->short_ref[0]->tf, INT_MAX, 1);
             } else if (!h->frame_recovered) {
+                // if (!h->avctx->hwaccel && !h->avctx->motion_vectors_only)
                 if (!h->avctx->hwaccel)
                     color_frame(h->short_ref[0]->f, c);
                 h->short_ref[0]->gray = 1;
@@ -1713,9 +1716,11 @@ static int h264_field_start(H264Context *h, const H264SliceContext *sl,
      * field coded frames, since some SEI information is present for each field
      * and is merged by the SEI parsing code. */
     if (!FIELD_PICTURE(h) || !h->first_field || h->missing_fields > 1) {
-        ret = h264_export_frame_props(h);
-        if (ret < 0)
-            return ret;
+        // if (!h->avctx->motion_vectors_only) {
+            ret = h264_export_frame_props(h);
+            if (ret < 0)
+                return ret;
+        // }
 
         ret = h264_select_output_frame(h);
         if (ret < 0)
@@ -2567,7 +2572,8 @@ static void decode_finish_row(const H264Context *h, H264SliceContext *sl)
         top    = 0;
     }
 
-    ff_h264_draw_horiz_band(h, sl, top, height);
+    // if(!h->avctx->motion_vectors_only)
+        ff_h264_draw_horiz_band(h, sl, top, height);
 
     if (h->droppable || h->er.error_occurred)
         return;
@@ -2728,6 +2734,14 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
         }
     } else {
+        decode_cavlc_residual_func decode_cavlc_residual = decode_residual;
+        decode_cavlc_luma_residual_func decode_cavlc_luma_residual = decode_luma_residual;
+        
+        if(h->avctx->motion_vectors_only) {
+            decode_cavlc_residual = decode_residual_skip;
+            decode_cavlc_luma_residual = decode_luma_residual_skip;
+        }
+
         for (;;) {
             int ret;
 
@@ -2739,7 +2753,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 return AVERROR_INVALIDDATA;
             }
 
-            ret = ff_h264_decode_mb_cavlc(h, sl);
+            ret = ff_h264_decode_mb_cavlc(h, sl, decode_cavlc_residual, decode_cavlc_luma_residual);
 
             // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
@@ -2749,7 +2763,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
-                ret = ff_h264_decode_mb_cavlc(h, sl);
+                ret = ff_h264_decode_mb_cavlc(h, sl, decode_cavlc_residual, decode_cavlc_luma_residual);
 
                 // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)

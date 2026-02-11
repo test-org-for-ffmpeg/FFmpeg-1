@@ -618,6 +618,29 @@ typedef void (*cabac_residual_nondc_func)(
     int max_coeff
 );
 
+typedef int (*decode_cavlc_residual_func)(
+    const H264Context *h,
+    H264SliceContext *sl,
+    GetBitContext *gb,
+    int16_t *block,
+    int n,
+    const uint8_t *scantable,
+    const uint32_t *qmul,
+    int max_coeff
+);
+
+typedef int (*decode_cavlc_luma_residual_func)(
+    const H264Context *h,
+    H264SliceContext *sl,
+    GetBitContext *gb,
+    const uint8_t *scan,
+    const uint8_t *scan8x8,
+    int pixel_shift,
+    int mb_type,
+    int cbp,
+    int p
+);
+
 extern const uint16_t ff_h264_mb_sizes[4];
 
 
@@ -662,6 +685,32 @@ void decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                                               int pixel_shift, int mb_type, int cbp, int p);
 
 /**
+ * CAVCL residual decoding functions - normal variants 
+ */
+int decode_residual(const H264Context *h, H264SliceContext *sl,
+                           GetBitContext *gb, int16_t *block, int n,
+                           const uint8_t *scantable, const uint32_t *qmul,
+                           int max_coeff);
+
+int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
+                         GetBitContext *gb, const uint8_t *scan,
+                         const uint8_t *scan8x8, int pixel_shift,
+                         int mb_type, int cbp, int p);
+
+/**
+ * CAVCL residual decoding functions - skip variants for motion_vectors_only mode
+ */
+int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
+                                GetBitContext *gb, int16_t *block, int n,
+                                const uint8_t *scantable, const uint32_t *qmul,
+                                int max_coeff);
+
+int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
+                              GetBitContext *gb, const uint8_t *scan,
+                              const uint8_t *scan8x8, int pixel_shift,
+                              int mb_type, int cbp, int p);
+
+/**
  * Reconstruct bitstream slice_type.
  */
 int ff_h264_get_slice_type(const H264SliceContext *sl);
@@ -691,7 +740,7 @@ void ff_h264_decode_init_vlc(void);
  * Decode a macroblock
  * @return 0 if OK, ER_AC_ERROR / ER_DC_ERROR / ER_MV_ERROR on error
  */
-int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl);
+int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl, decode_cavlc_residual_func decode_residual_func, decode_cavlc_luma_residual_func decode_luma_residual_func);
 
 /**
  * Decode a CABAC coded macroblock
