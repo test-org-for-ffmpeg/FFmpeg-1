@@ -3496,52 +3496,148 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
     int num_mvs = 0;
     int idx = 0;
 
+    if (!tab_mvf)
+        return 0;
+
+    /*
+     * visited[][] tracks which cells have already been claimed by a PU.
+     * We scan top-left to bottom-right; for each unvisited inter cell,
+     * we expand right then down to find the full rectangle of identical MVs.
+     */
+    uint8_t *visited = av_mallocz(min_pu_width * min_pu_height);
+    if (!visited)
+        return AVERROR(ENOMEM);
+
     /* First pass: count how many MV entries we need */
     for (int y = 0; y < min_pu_height; y++) {
         for (int x = 0; x < min_pu_width; x++) {
+            if (visited[y * min_pu_width + x])
+                continue;
+
             const MvField *mvf = &tab_mvf[y * min_pu_width + x];
+            if (!(mvf->pred_flag & (PF_L0 | PF_L1))) {
+                visited[y * min_pu_width + x] = 1;
+                continue;
+            }
+
+            /* Find width: expand right while MV matches */
+            int w = 1;
+            while (x + w < min_pu_width &&
+                   !visited[y * min_pu_width + x + w] &&
+                   AV_RN64A(&tab_mvf[y * min_pu_width + x + w]) ==
+                   AV_RN64A(mvf) &&
+                   tab_mvf[y * min_pu_width + x + w].pred_flag == mvf->pred_flag &&
+                   tab_mvf[y * min_pu_width + x + w].ref_idx[0] == mvf->ref_idx[0] &&
+                   tab_mvf[y * min_pu_width + x + w].ref_idx[1] == mvf->ref_idx[1])
+                w++;
+
+            /* Find height: expand down while entire row matches */
+            int h = 1;
+            while (y + h < min_pu_height) {
+                int row_ok = 1;
+                for (int xx = x; xx < x + w; xx++) {
+                    const MvField *below = &tab_mvf[(y + h) * min_pu_width + xx];
+                    if (visited[(y + h) * min_pu_width + xx] ||
+                        below->pred_flag != mvf->pred_flag ||
+                        AV_RN64A(&below->mv) != AV_RN64A(&mvf->mv) ||
+                        below->ref_idx[0] != mvf->ref_idx[0] ||
+                        below->ref_idx[1] != mvf->ref_idx[1]) {
+                        row_ok = 0;
+                        break;
+                    }
+                }
+                if (!row_ok) break;
+                h++;
+            }
+
+            /* Mark all cells in this rectangle as visited */
+            for (int yy = y; yy < y + h; yy++)
+                for (int xx = x; xx < x + w; xx++)
+                    visited[yy * min_pu_width + xx] = 1;
+
+            /* Count: one entry per direction */
             if (mvf->pred_flag & PF_L0) num_mvs++;
             if (mvf->pred_flag & PF_L1) num_mvs++;
         }
     }
 
-    if (!num_mvs)
+    if (!num_mvs) {
+        av_free(visited);
         return 0;
+    }
 
     sd = av_frame_new_side_data(frame->f, AV_FRAME_DATA_MOTION_VECTORS,
                                 num_mvs * sizeof(AVMotionVector));
-    if (!sd)
+    if (!sd) {
+        av_free(visited);
         return AVERROR(ENOMEM);
+    }
 
     AVMotionVector *mvs = (AVMotionVector *)sd->data;
 
     /* Second pass: fill in the motion vectors */
+    memset(visited, 0, min_pu_width * min_pu_height);
+
     for (int y = 0; y < min_pu_height; y++) {
         for (int x = 0; x < min_pu_width; x++) {
+            if (visited[y * min_pu_width + x])
+                continue;
+
             const MvField *mvf = &tab_mvf[y * min_pu_width + x];
 
             /* Skip intra-predicted or empty PUs */
-            if (!(mvf->pred_flag & (PF_L0 | PF_L1)))
+            if (!(mvf->pred_flag & (PF_L0 | PF_L1))) {
+                visited[y * min_pu_width + x] = 1;
                 continue;
+            }
+
+            /* Same expansion as first pass */
+            int w = 1;
+            while (x + w < min_pu_width &&
+                   !visited[y * min_pu_width + x + w] &&
+                   AV_RN64A(&tab_mvf[y * min_pu_width + x + w]) ==
+                   AV_RN64A(mvf) &&
+                   tab_mvf[y * min_pu_width + x + w].pred_flag == mvf->pred_flag &&
+                   tab_mvf[y * min_pu_width + x + w].ref_idx[0] == mvf->ref_idx[0] &&
+                   tab_mvf[y * min_pu_width + x + w].ref_idx[1] == mvf->ref_idx[1])
+                w++;
+
+            int h = 1;
+            while (y + h < min_pu_height) {
+                int row_ok = 1;
+                for (int xx = x; xx < x + w; xx++) {
+                    const MvField *below = &tab_mvf[(y + h) * min_pu_width + xx];
+                    if (visited[(y + h) * min_pu_width + xx] ||
+                        below->pred_flag != mvf->pred_flag ||
+                        AV_RN64A(&below->mv) != AV_RN64A(&mvf->mv) ||
+                        below->ref_idx[0] != mvf->ref_idx[0] ||
+                        below->ref_idx[1] != mvf->ref_idx[1]) {
+                        row_ok = 0;
+                        break;
+                    }
+                }
+                if (!row_ok) break;
+                h++;
+            }
+
+            for (int yy = y; yy < y + h; yy++)
+                for (int xx = x; xx < x + w; xx++)
+                    visited[yy * min_pu_width + xx] = 1;
+
+            int pixel_x = x * min_pu_size;
+            int pixel_y = y * min_pu_size;
+            int pixel_w = w * min_pu_size;
+            int pixel_h = h * min_pu_size;
 
             for (int dir = 0; dir < 2; dir++) {
-                AVMotionVector *out;
-                int src_x, src_y;
-
                 if (!(mvf->pred_flag & (1 << dir)))
                     continue;
 
-                out = &mvs[idx++];
-
-                src_x = x * min_pu_size;
-                src_y = y * min_pu_size;
-
-                out->w        = min_pu_size;
-                out->h        = min_pu_size;
-                /* src is the center of the block in the current frame */
-                out->src_x    = src_x + min_pu_size / 2;
-                out->src_y    = src_y + min_pu_size / 2;
-                /* dst is where the reference block is (integer-pel position) */
+                AVMotionVector *out = &mvs[idx++];
+                out->w        = pixel_w;
+                out->h        = pixel_h;
+                out->src_x    = pixel_x + pixel_w / 2;
+                out->src_y    = pixel_y + pixel_h / 2;
                 out->dst_x    = out->src_x + (mvf->mv[dir].x >> 2);
                 out->dst_y    = out->src_y + (mvf->mv[dir].y >> 2);
                 /* Raw quarter-pel MV components */
@@ -3561,6 +3657,11 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
     }
 
     av_assert0(idx == num_mvs);
+    av_free(visited);
+
+    av_log(s->avctx, AV_LOG_DEBUG,
+           "MV export: POC=%d, merged MVs=%d\n", s->poc, num_mvs);
+
     return 0;
 }
 
