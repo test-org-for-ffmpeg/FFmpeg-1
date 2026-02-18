@@ -967,7 +967,11 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
         *got_frame = 1;
 
         if (CONFIG_MPEGVIDEODEC) {
-            ff_print_debug_info2(h->avctx, dst,
+            ff_print_debug_info_func ff_print_debug_info_cust = ff_print_debug_info2;
+            if (h->avctx->motion_vectors_only)
+                ff_print_debug_info_cust = ff_print_debug_info2_optimized;
+
+            ff_print_debug_info_cust(h->avctx, dst,
                                  out->mb_type,
                                  out->qscale_table,
                                  out->motion_val,

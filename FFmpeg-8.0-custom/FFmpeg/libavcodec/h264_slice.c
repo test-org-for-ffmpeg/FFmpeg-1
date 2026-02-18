@@ -129,6 +129,17 @@ static void release_unused_pictures(H264Context *h, int remove_current)
 
 static int alloc_scratch_buffers(H264SliceContext *sl, int linesize)
 {
+    if (sl->h264->avctx->motion_vectors_only) {
+        // Allocate minimal buffers - just enough to avoid NULL checks
+        av_fast_malloc(&sl->bipred_scratchpad,
+                       &sl->bipred_scratchpad_allocated, 64);
+        av_fast_malloc(&sl->edge_emu_buffer,
+                       &sl->edge_emu_buffer_allocated, 64);
+        av_fast_mallocz(&sl->top_borders[0], &sl->top_borders_allocated[0], 64);
+        av_fast_mallocz(&sl->top_borders[1], &sl->top_borders_allocated[1], 64);
+        return (sl->bipred_scratchpad && sl->edge_emu_buffer &&
+                sl->top_borders[0] && sl->top_borders[1]) ? 0 : AVERROR(ENOMEM);
+    }
     const H264Context *h = sl->h264;
     int alloc_size = FFALIGN(FFABS(linesize) + 32, 32);
 
@@ -262,7 +273,7 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
 
 motion_vector_tables:
     // Motion vector storage (ALWAYS ALLOCATE)
-    if (h->decode_error_flags_pool) {
+    if (!h->avctx->motion_vectors_only && h->decode_error_flags_pool) {
         pic->decode_error_flags = av_refstruct_pool_get(h->decode_error_flags_pool);
         if (!pic->decode_error_flags)
             goto fail;
@@ -1046,11 +1057,13 @@ static int h264_slice_header_init(H264Context *h)
 
     ff_h264dsp_init(&h->h264dsp, sps->bit_depth_luma,
                     sps->chroma_format_idc, h->avctx->motion_vectors_only);
-    ff_h264chroma_init(&h->h264chroma, sps->bit_depth_chroma);
-    ff_h264qpel_init(&h->h264qpel, sps->bit_depth_luma);
-    ff_h264_pred_init(&h->hpc, AV_CODEC_ID_H264, sps->bit_depth_luma,
-                      sps->chroma_format_idc);
-    ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
+    if(!h->avctx->motion_vectors_only) {
+        ff_h264chroma_init(&h->h264chroma, sps->bit_depth_chroma);
+        ff_h264qpel_init(&h->h264qpel, sps->bit_depth_luma);
+        ff_h264_pred_init(&h->hpc, AV_CODEC_ID_H264, sps->bit_depth_luma,
+                        sps->chroma_format_idc);
+        ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
+    }
 
     if (!HAVE_THREADS || !(h->avctx->active_thread_type & FF_THREAD_SLICE)) {
         ff_h264_slice_context_init(h, &h->slice_ctx[0]);
@@ -1202,6 +1215,12 @@ static int h264_init_ps(H264Context *h, const H264SliceContext *sl, int first_sl
 
 static int h264_export_frame_props(H264Context *h)
 {
+    if (h->avctx->motion_vectors_only) {
+        // Only export what's needed for reference frame management
+        // POC-based interlacing detection still needed for field pics
+        h->prev_interlaced_frame = FIELD_OR_MBAFF_PICTURE(h);
+        return 0;
+    }
     const SPS *sps = h->ps.sps;
     H264Picture *cur = h->cur_pic_ptr;
     AVFrame *out = cur->f;
@@ -1971,7 +1990,8 @@ static int h264_slice_init(H264Context *h, H264SliceContext *sl,
     if (ret < 0)
         return ret;
 
-    if (h->ps.pps->weighted_bipred_idc == 2 &&
+    if (!h->avctx->motion_vectors_only &&
+        h->ps.pps->weighted_bipred_idc == 2 &&
         sl->slice_type_nos == AV_PICTURE_TYPE_B) {
         implicit_weight_table(h, sl, -1);
         if (FRAME_MBAFF(h)) {
@@ -2567,7 +2587,8 @@ static void decode_finish_row(const H264Context *h, H264SliceContext *sl)
         top    = 0;
     }
 
-    ff_h264_draw_horiz_band(h, sl, top, height);
+    if(!h->avctx->motion_vectors_only)
+        ff_h264_draw_horiz_band(h, sl, top, height);
 
     if (h->droppable || h->er.error_occurred)
         return;

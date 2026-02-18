@@ -586,6 +586,18 @@ typedef struct H264Context {
  * Helper typedefs for motion vector specific functions
  */
 
+typedef void (*ff_print_debug_info_func)(
+    AVCodecContext        *avctx,
+    AVFrame               *pict,
+    const uint32_t        *mbtype_table,
+    const int8_t          *qscale_table,
+    int16_t (*const        motion_val[2])[2],
+    int                    mb_width,
+    int                    mb_height,
+    int                    mb_stride,
+    int                    quarter_sample
+);
+
 typedef void (*cabac_luma_residual_func)(
     const H264Context *h, 
     H264SliceContext *sl,
