@@ -2567,8 +2567,7 @@ static void decode_finish_row(const H264Context *h, H264SliceContext *sl)
         top    = 0;
     }
 
-    // if(!h->avctx->motion_vectors_only)
-        ff_h264_draw_horiz_band(h, sl, top, height);
+    ff_h264_draw_horiz_band(h, sl, top, height);
 
     if (h->droppable || h->er.error_occurred)
         return;

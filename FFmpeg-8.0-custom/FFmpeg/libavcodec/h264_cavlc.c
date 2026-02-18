@@ -669,12 +669,11 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                               int mb_type, int cbp, int p)
 {
     int i4x4, i8x8;
-    int qscale = p == 0 ? sl->qscale : sl->chroma_qp[p - 1];
 
     if(IS_INTRA16x16(mb_type)){
         /* for intra16x16 the DC block has 16 coeffs and AC blocks may follow.
          * decode_residual_skip will update non_zero_count_cache appropriately. */
-        if (decode_residual_skip(h, sl, gb, NULL, LUMA_DC_BLOCK_INDEX + p, scan, NULL, 16) < 0) {
+        if (decode_residual_skip(h, sl, gb, NULL, LUMA_DC_BLOCK_INDEX + p, NULL, NULL, 16) < 0) {
             return -1;
         }
 
@@ -684,7 +683,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
             for(i8x8=0; i8x8<4; i8x8++){
                 for(i4x4=0; i4x4<4; i4x4++){
                     const int index= i4x4 + 4*i8x8 + p*16;
-                    if( decode_residual_skip(h, sl, gb, NULL, index, scan + 1, h->ps.pps->dequant4_coeff[p][qscale], 15) < 0 ){
+                    if( decode_residual_skip(h, sl, gb, NULL, index, NULL, NULL, 15) < 0 ){
                         return -1;
                     }
                 }
@@ -695,7 +694,6 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
             return 0;
         }
     }else{
-        int cqm = (IS_INTRA( mb_type ) ? 0:3)+p;
         int new_cbp = 0;
 
         for(i8x8=0; i8x8<4; i8x8++){
@@ -703,8 +701,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                 if(IS_8x8DCT(mb_type)){
                     for(i4x4=0; i4x4<4; i4x4++){
                         const int index= i4x4 + 4*i8x8 + p*16;
-                        if( decode_residual_skip(h, sl, gb, NULL,  index, scan8x8+16*i4x4,
-                                                 h->ps.pps->dequant8_coeff[cqm][qscale], 16) < 0 )
+                        if( decode_residual_skip(h, sl, gb, NULL,  index, NULL, NULL, 16) < 0 )
                             return -1;
                     }
                     /* update nnz like original: the non_zero_count_cache entries already updated */
@@ -714,8 +711,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                 }else{
                     for(i4x4=0; i4x4<4; i4x4++){
                         const int index= i4x4 + 4*i8x8 + p*16;
-                        if( decode_residual_skip(h, sl, gb, NULL, index, scan,
-                                                 h->ps.pps->dequant4_coeff[cqm][qscale], 16) < 0 ){
+                        if( decode_residual_skip(h, sl, gb, NULL, index, NULL, NULL, 16) < 0 ){
                             return -1;
                         }
                         new_cbp |= sl->non_zero_count_cache[scan8[index]] << i8x8;
@@ -1333,7 +1329,9 @@ decode_intra_mb:
 
             if(cbp&0x20){
                 for(chroma_idx=0; chroma_idx<2; chroma_idx++){
-                    const uint32_t *qmul = h->ps.pps->dequant4_coeff[chroma_idx+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[chroma_idx]];
+                    const uint32_t *qmul = NULL;
+                    if (!h->avctx->motion_vectors_only)
+                        qmul = h->ps.pps->dequant4_coeff[chroma_idx+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[chroma_idx]];
                     int16_t *mb = sl->mb + (16*(16 + 16*chroma_idx) << pixel_shift);
                     for (i8x8 = 0; i8x8<num_c8x8; i8x8++) {
                         for (i4x4 = 0; i4x4 < 4; i4x4++) {

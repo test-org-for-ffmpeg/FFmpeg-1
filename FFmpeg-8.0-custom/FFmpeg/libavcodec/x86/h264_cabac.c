@@ -207,7 +207,7 @@ static int decode_significance_8x8_x86(CABACContext *c,
 #define decode_significance_skip decode_significance_skip_x86
 static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
                                    uint8_t *significant_coeff_ctx_base,
-                                   int *index, x86_reg last_off){
+                                   x86_reg last_off){
     void *end= significant_coeff_ctx_base + max_coeff - 1;
     int bit;
     x86_reg coeff_count;
@@ -285,7 +285,7 @@ static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
 #define decode_significance_skip_8x8 decode_significance_8x8_skip_x86
 static int decode_significance_8x8_skip_x86(CABACContext *c,
                                            uint8_t *significant_coeff_ctx_base,
-                                           int *index, uint8_t *last_coeff_ctx_base,
+                                           uint8_t *last_coeff_ctx_base,
                                            const uint8_t *sig_off){
     int bit;
     x86_reg coeff_count;
