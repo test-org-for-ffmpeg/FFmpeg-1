@@ -2807,8 +2807,7 @@ static int hls_decode_entry(HEVCContext *s, GetBitContext *gb)
             ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
     }
 
-    if (!s->motion_vectors_only &&
-        x_ctb + ctb_size >= sps->width &&
+    if (x_ctb + ctb_size >= sps->width &&
         y_ctb + ctb_size >= sps->height)
         ff_hevc_hls_filter(lc, l, pps, x_ctb, y_ctb, ctb_size);
 
@@ -2891,8 +2890,7 @@ static int hls_decode_entry_wpp(AVCodecContext *avctx, void *hevc_lclist,
         }
 
         if ((x_ctb+ctb_size) >= sps->width && (y_ctb+ctb_size) >= sps->height ) {
-            if (!s->motion_vectors_only)
-                ff_hevc_hls_filter(lc, l, pps, x_ctb, y_ctb, ctb_size);
+            ff_hevc_hls_filter(lc, l, pps, x_ctb, y_ctb, ctb_size);
             ff_thread_progress_report(&s->wpp_progress[ctb_row], INT_MAX);
             return ctb_addr_ts;
         }

@@ -876,6 +876,13 @@ void ff_hevc_hls_filter(HEVCLocalContext *lc, const HEVCLayerContext *l,
     const HEVCSPS   *const sps = pps->sps;
     const HEVCContext *const s = lc->parent;
     int x_end = x >= sps->width  - ctb_size;
+    
+     if (s->motion_vectors_only) {
+        if (s->avctx->active_thread_type & FF_THREAD_FRAME && x_end)
+            ff_progress_frame_report(&s->cur_frame->tf, y + ctb_size - 4);
+        return;
+    }
+
     int skip = 0;
     if (s->avctx->skip_loop_filter >= AVDISCARD_ALL ||
         (s->avctx->skip_loop_filter >= AVDISCARD_NONKEY && !IS_IDR(s)) ||

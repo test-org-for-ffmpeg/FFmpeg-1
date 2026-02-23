@@ -818,12 +818,13 @@ int ff_h264_decode_picture_parameter_set(GetBitContext *gb, AVCodecContext *avct
         pps->chroma_qp_index_offset[1] = pps->chroma_qp_index_offset[0];
     }
 
-    build_qp_table(pps, 0, pps->chroma_qp_index_offset[0],
-                   sps->bit_depth_luma);
-    build_qp_table(pps, 1, pps->chroma_qp_index_offset[1],
-                   sps->bit_depth_luma);
-
-    init_dequant_tables(pps, sps);
+    if (!avctx->motion_vectors_only) {
+        build_qp_table(pps, 0, pps->chroma_qp_index_offset[0], 
+                       sps->bit_depth_luma);
+        build_qp_table(pps, 1, pps->chroma_qp_index_offset[1],
+                       sps->bit_depth_luma);
+        init_dequant_tables(pps, sps);
+    }
 
     if (pps->chroma_qp_index_offset[0] != pps->chroma_qp_index_offset[1])
         pps->chroma_qp_diff = 1;

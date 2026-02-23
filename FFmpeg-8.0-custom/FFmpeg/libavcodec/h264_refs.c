@@ -124,6 +124,8 @@ static int add_sorted(H264Picture **sorted, H264Picture * const *src,
 
 static int mismatches_ref(const H264Context *h, const H264Picture *pic)
 {
+    if (h->avctx->motion_vectors_only)
+        return 0;
     const AVFrame *f = pic->f;
     return (h->cur_pic_ptr->f->width  != f->width ||
             h->cur_pic_ptr->f->height != f->height ||

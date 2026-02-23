@@ -1,14 +1,7 @@
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/doc/avoptions_codec.texi b/doc/avoptions_codec.texi
 --- a/doc/avoptions_codec.texi	2026-01-15 17:58:22.435242401 +0100
-+++ b/doc/avoptions_codec.texi	2026-02-05 13:23:24.235424835 +0100
-@@ -49,11 +49,15 @@
- H.263 advanced intra coding / MPEG-4 AC prediction
- @item ilme
- interlaced motion estimation
-+@item ilme
-+interlaced motion estimation
- @item cgop
- closed GOP
++++ b/doc/avoptions_codec.texi	2026-02-23 09:52:41.942720523 +0100
+@@ -54,6 +54,8 @@
  @item output_corrupt
  Output even potentially corrupted frames
  @end table
@@ -45,7 +38,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
              FrameDecodeData *fdd = frame->private_ref;
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/h264_cabac.c b/libavcodec/h264_cabac.c
 --- a/libavcodec/h264_cabac.c	2026-02-02 14:22:05.887759328 +0100
-+++ b/libavcodec/h264_cabac.c	2026-02-11 11:07:51.443515627 +0100
++++ b/libavcodec/h264_cabac.c	2026-02-18 13:11:37.437730789 +0100
 @@ -1818,7 +1818,7 @@
   * because it allows improved constant propagation into get_cabac_cbf_ctx,
   * as well as because most blocks have zero CBFs. */
@@ -82,15 +75,14 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                                                          const uint8_t *scan, const uint8_t *scan8x8,
                                                          int pixel_shift, int mb_type, int cbp, int p)
  {
-@@ -1913,11 +1913,324 @@
+@@ -1913,11 +1913,301 @@
      }
  }
  
 +static av_always_inline void
 +decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
-+                               int16_t *block,
 +                               int cat, int n, const uint8_t *scantable,
-+                               const uint32_t *qmul, int max_coeff,
++                               int max_coeff,
 +                               int is_dc, int chroma422)
 +{
 +    static const int significant_coeff_flag_offset[2][14] = {
@@ -130,8 +122,6 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +    /* update node ctx after decoding a level>1 */
 +        { 4, 4, 4, 4, 5, 6, 7, 7 }
 +    };
-+
-+    int index[64];
 +
 +    int last;
 +    int coeff_count = 0;
@@ -181,13 +171,13 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +            coeff_count++;\
 +        }
 +        const uint8_t *sig_off = significant_coeff_flag_offset_8x8[MB_FIELD(sl)];
-+        coeff_count = decode_significance_skip_8x8(CC, significant_coeff_ctx_base, index,
++        coeff_count = decode_significance_skip_8x8(CC, significant_coeff_ctx_base,
 +                                                 last_coeff_ctx_base, sig_off);
 +    } else {
 +        if (is_dc && chroma422) { // dc 422
 +            DECODE_SIGNIFICANCE_COUNT_ONLY(7, sig_coeff_offset_dc[last], sig_coeff_offset_dc[last]);
 +        } else {
-+            coeff_count = decode_significance_skip(CC, max_coeff, significant_coeff_ctx_base, index,
++            coeff_count = decode_significance_skip(CC, max_coeff, significant_coeff_ctx_base,
 +                                                 last_coeff_ctx_base-significant_coeff_ctx_base);
 +        }
 +    }
@@ -256,33 +246,29 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +
 +static av_noinline void decode_cabac_residual_dc_internal_skip(const H264Context *h,
 +                                                          H264SliceContext *sl,
-+                                                          int16_t *block,
 +                                                          int cat, int n,
 +                                                          const uint8_t *scantable,
 +                                                          int max_coeff)
 +{
-+    decode_cabac_residual_internal_skip(h, sl, block, cat, n, scantable, NULL, max_coeff, 1, 0);
++    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 1, 0);
 +}
 +
 +static av_noinline void decode_cabac_residual_dc_internal_422_skip(const H264Context *h,
 +                                                              H264SliceContext *sl,
-+                                                              int16_t *block,
 +                                                              int cat, int n,
 +                                                              const uint8_t *scantable,
 +                                                              int max_coeff)
 +{
-+    decode_cabac_residual_internal_skip(h, sl, block, cat, n, scantable, NULL, max_coeff, 1, 1);
++    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 1, 1);
 +}
 +
 +static av_noinline void decode_cabac_residual_nondc_internal_skip(const H264Context *h,
 +                                                             H264SliceContext *sl,
-+                                                             int16_t *block,
 +                                                             int cat, int n,
 +                                                             const uint8_t *scantable,
-+                                                             const uint32_t *qmul,
 +                                                             int max_coeff)
 +{
-+    decode_cabac_residual_internal_skip(h, sl, block, cat, n, scantable, qmul, max_coeff, 0, 0);
++    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 0, 0);
 +}
 +
 +av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h,
@@ -297,7 +283,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +        sl->non_zero_count_cache[scan8[n]] = 0;
 +        return;
 +    }
-+    decode_cabac_residual_dc_internal_skip(h, sl, block, cat, n, scantable, max_coeff);
++    decode_cabac_residual_dc_internal_skip(h, sl, cat, n, scantable, max_coeff);
 +}
 +
 +av_always_inline void
@@ -311,7 +297,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +        sl->non_zero_count_cache[scan8[n]] = 0;
 +        return;
 +    }
-+    decode_cabac_residual_dc_internal_422_skip(h, sl, block, cat, n, scantable, max_coeff);
++    decode_cabac_residual_dc_internal_422_skip(h, sl, cat, n, scantable, max_coeff);
 +}
 +
 +av_always_inline void decode_cabac_residual_nondc_skip(const H264Context *h,
@@ -331,7 +317,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +        }
 +        return;
 +    }
-+    decode_cabac_residual_nondc_internal_skip(h, sl, block, cat, n, scantable, qmul, max_coeff);
++    decode_cabac_residual_nondc_internal_skip(h, sl, cat, n, scantable, max_coeff);
 +}
 +
 +av_always_inline void 
@@ -342,45 +328,29 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +
 +    static const uint8_t ctx_cat[4][3] = {{0,6,10},{1,7,11},{2,8,12},{5,9,13}};
 +    int i8x8, i4x4;
-+    int qscale = p == 0 ? sl->qscale : sl->chroma_qp[p - 1];
 +    
 +    if( IS_INTRA16x16( mb_type ) ) {
-+        // SKIP EXPENSIVE MEMORY CLEARING - we don't need clean coefficient storage
-+        // AV_ZERO128(sl->mb_luma_dc[p]+0);   // ← DELETE
-+        // AV_ZERO128(sl->mb_luma_dc[p]+8);   // ← DELETE  
-+        // AV_ZERO128(sl->mb_luma_dc[p]+16);  // ← DELETE
-+        // AV_ZERO128(sl->mb_luma_dc[p]+24);  // ← DELETE
-+        
-+        // Use dummy storage instead of sl->mb_luma_dc
-+        DECLARE_ALIGNED(16, int16_t, dummy_dc)[32];
-+        decode_cabac_residual_dc_skip(h, sl, dummy_dc, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
++        decode_cabac_residual_dc_skip(h, sl, NULL, ctx_cat[0][p], LUMA_DC_BLOCK_INDEX+p, scan, 16);
 +
 +        if( cbp&15 ) {
-+            const uint32_t *qmul = h->ps.pps->dequant4_coeff[p][qscale];
-+            DECLARE_ALIGNED(16, int16_t, dummy_block)[64];
 +            for( i4x4 = 0; i4x4 < 16; i4x4++ ) {
 +                const int index = 16*p + i4x4;
-+                // Use dummy storage instead of sl->mb
-+                decode_cabac_residual_nondc_skip(h, sl, dummy_block, ctx_cat[1][p], index, scan + 1, qmul, 15);
++                decode_cabac_residual_nondc_skip(h, sl, NULL, ctx_cat[1][p], index, scan + 1, NULL, 15);
 +            }
 +        } else {
 +            fill_rectangle(&sl->non_zero_count_cache[scan8[16*p]], 4, 4, 8, 0, 1);
 +        }
 +    } else {
-+        int cqm = (IS_INTRA( mb_type ) ? 0:3) + p;
-+        int16_t dummy_block[64];  // Single dummy block for all iterations
-+        
 +        for( i8x8 = 0; i8x8 < 4; i8x8++ ) {
 +            if( cbp & (1<<i8x8) ) {
 +                if( IS_8x8DCT(mb_type) ) {
 +                    const int index = 16*p + 4*i8x8;
-+                    decode_cabac_residual_nondc_skip(h, sl, dummy_block, ctx_cat[3][p], index,
-+                                                scan8x8, h->ps.pps->dequant8_coeff[cqm][qscale], 64);
++                    decode_cabac_residual_nondc_skip(h, sl, NULL, ctx_cat[3][p], index,
++                                                scan8x8, NULL, 64);
 +                } else {
-+                    const uint32_t *qmul = h->ps.pps->dequant4_coeff[cqm][qscale];
 +                    for( i4x4 = 0; i4x4 < 4; i4x4++ ) {
 +                        const int index = 16*p + 4*i8x8 + i4x4;
-+                        decode_cabac_residual_nondc_skip(h, sl, dummy_block, ctx_cat[2][p], index, scan, qmul, 16);
++                        decode_cabac_residual_nondc_skip(h, sl, NULL, ctx_cat[2][p], index, scan, NULL, 16);
 +                    }
 +                }
 +            } else {
@@ -408,7 +378,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  {
      const SPS *sps = h->ps.sps;
      int mb_xy;
-@@ -2085,15 +2398,18 @@
+@@ -2085,15 +2375,18 @@
                  for( i = 0; i < 16; i++ ) {
                      int pred = pred_intra_mode(h, sl, i);
                      sl->intra4x4_pred_mode_cache[scan8[i]] = decode_cabac_mb_intra4x4_pred_mode(sl, pred);
@@ -433,7 +403,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
          } else {
              sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
                                                                       sl->left_samples_available, sl->intra16x16_pred_mode, 0);
-@@ -2393,8 +2709,6 @@
+@@ -2393,8 +2686,6 @@
  
      if( cbp || IS_INTRA16x16( mb_type ) ) {
          const uint8_t *scan, *scan8x8;
@@ -442,7 +412,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
          // decode_cabac_mb_dqp
          if(get_cabac_noinline( &sl->cabac, &sl->cabac_state[60 + (sl->last_qscale_diff != 0)])){
              int val = 1;
-@@ -2433,29 +2747,31 @@
+@@ -2433,29 +2724,32 @@
              scan    = sl->qscale ? h->zigzag_scan : h->zigzag_scan_q0;
          }
  
@@ -470,10 +440,12 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  
              if( cbp&0x20 ) {
                  int c, i, i8x8;
-+                const uint32_t *qmul;
++                const uint32_t *qmul = NULL;
                  for( c = 0; c < 2; c++ ) {
 -                    int16_t *mb = sl->mb + (16*(16 + 16*c) << pixel_shift);
-                     qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
+-                    qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
++                    if (!h->avctx->motion_vectors_only)
++                        qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
                      for (i8x8 = 0; i8x8 < 2; i8x8++) {
                          for (i = 0; i < 4; i++) {
                              const int index = 16 + 16 * c + 8*i8x8 + i;
@@ -483,7 +455,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                          }
                      }
                  }
-@@ -2464,20 +2780,22 @@
+@@ -2464,20 +2758,23 @@
                  fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
              }
          } else /* yuv420 */ {
@@ -493,15 +465,17 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                  for (c = 0; c < 2; c++)
 -                    decode_cabac_residual_dc(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
 -                                             3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
-+                    decode_cabac_residual_dc_skip(h, sl, dummy_chroma,
++                    decode_residual_dc(h, sl, dummy_chroma,
 +                                       3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
              }
  
              if( cbp&0x20 ) {
                  int c, i;
-+                const uint32_t *qmul;
++                const uint32_t *qmul = NULL;
                  for( c = 0; c < 2; c++ ) {
-                     qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
+-                    qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
++                    if (!h->avctx->motion_vectors_only)
++                        qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
                      for( i = 0; i < 4; i++ ) {
                          const int index = 16 + 16 * c + i;
 -                        decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
@@ -511,7 +485,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
              } else {
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/h264_cavlc.c b/libavcodec/h264_cavlc.c
 --- a/libavcodec/h264_cavlc.c	2025-12-18 16:42:39.003411803 +0100
-+++ b/libavcodec/h264_cavlc.c	2026-02-11 11:07:51.443515627 +0100
++++ b/libavcodec/h264_cavlc.c	2026-02-18 13:14:00.231102669 +0100
 @@ -402,7 +402,7 @@
   * @param max_coeff number of coefficients in the block
   * @return <0 if an error occurred
@@ -530,7 +504,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
                           GetBitContext *gb, const uint8_t *scan,
                           const uint8_t *scan8x8, int pixel_shift,
-@@ -662,7 +662,244 @@
+@@ -662,7 +662,214 @@
      }
  }
  
@@ -542,12 +516,11 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +                              int mb_type, int cbp, int p)
 +{
 +    int i4x4, i8x8;
-+    int qscale = p == 0 ? sl->qscale : sl->chroma_qp[p - 1];
 +
 +    if(IS_INTRA16x16(mb_type)){
 +        /* for intra16x16 the DC block has 16 coeffs and AC blocks may follow.
 +         * decode_residual_skip will update non_zero_count_cache appropriately. */
-+        if (decode_residual_skip(h, sl, gb, NULL, LUMA_DC_BLOCK_INDEX + p, scan, NULL, 16) < 0) {
++        if (decode_residual_skip(h, sl, gb, NULL, LUMA_DC_BLOCK_INDEX + p, NULL, NULL, 16) < 0) {
 +            return -1;
 +        }
 +
@@ -557,7 +530,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +            for(i8x8=0; i8x8<4; i8x8++){
 +                for(i4x4=0; i4x4<4; i4x4++){
 +                    const int index= i4x4 + 4*i8x8 + p*16;
-+                    if( decode_residual_skip(h, sl, gb, NULL, index, scan + 1, h->ps.pps->dequant4_coeff[p][qscale], 15) < 0 ){
++                    if( decode_residual_skip(h, sl, gb, NULL, index, NULL, NULL, 15) < 0 ){
 +                        return -1;
 +                    }
 +                }
@@ -568,7 +541,6 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +            return 0;
 +        }
 +    }else{
-+        int cqm = (IS_INTRA( mb_type ) ? 0:3)+p;
 +        int new_cbp = 0;
 +
 +        for(i8x8=0; i8x8<4; i8x8++){
@@ -576,8 +548,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +                if(IS_8x8DCT(mb_type)){
 +                    for(i4x4=0; i4x4<4; i4x4++){
 +                        const int index= i4x4 + 4*i8x8 + p*16;
-+                        if( decode_residual_skip(h, sl, gb, NULL,  index, scan8x8+16*i4x4,
-+                                                 h->ps.pps->dequant8_coeff[cqm][qscale], 16) < 0 )
++                        if( decode_residual_skip(h, sl, gb, NULL,  index, NULL, NULL, 16) < 0 )
 +                            return -1;
 +                    }
 +                    /* update nnz like original: the non_zero_count_cache entries already updated */
@@ -587,8 +558,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +                }else{
 +                    for(i4x4=0; i4x4<4; i4x4++){
 +                        const int index= i4x4 + 4*i8x8 + p*16;
-+                        if( decode_residual_skip(h, sl, gb, NULL, index, scan,
-+                                                 h->ps.pps->dequant4_coeff[cqm][qscale], 16) < 0 ){
++                        if( decode_residual_skip(h, sl, gb, NULL, index, NULL, NULL, 16) < 0 ){
 +                            return -1;
 +                        }
 +                        new_cbp |= sl->non_zero_count_cache[scan8[index]] << i8x8;
@@ -636,12 +606,11 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +    trailing_ones= coeff_token&3;
 +    av_assert2(total_coeff<=16);
 +
-+    /* parse trailing one signs (3 bits) but do not store */
-+    i = show_bits(gb, 3);
++    /* consume trailing one sign bits from the bitstream (not stored) */
 +    skip_bits(gb, trailing_ones);
 +
 +    if(trailing_ones<total_coeff) {
-+        int mask, prefix;
++        int prefix;
 +        int suffix_length = total_coeff > 10 & trailing_ones < 3;
 +        int bitsi= show_bits(gb, LEVEL_TAB_BITS);
 +        int level_code= cavlc_level_tab[suffix_length][bitsi][0];
@@ -677,7 +646,6 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +            if(trailing_ones < 3) level_code += 2;
 +
 +            suffix_length = 2;
-+            mask= -(level_code&1);
 +        }else{
 +            level_code += ((level_code>>31)|1) & -(trailing_ones < 3);
 +
@@ -708,8 +676,6 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +                    }
 +                    level_code += get_bits(gb, prefix-3);
 +                }
-+                mask= -(level_code&1);
-+                level_code= (((2+level_code)>>1) ^ mask) - mask;
 +            }
 +            suffix_length+= suffix_limit[suffix_length] + level_code > 2U*suffix_limit[suffix_length];
 +        }
@@ -734,34 +700,12 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +
 +    /* Now consume run_before VLCs exactly as the normal function would,
 +     * update scantable accordingly, but do not write coefficients anywhere. */
-+    scantable += zeros_left + total_coeff - 1;
-+
-+    if(n >= LUMA_DC_BLOCK_INDEX){
-+        /* for luma dc/AC blocks: consume run_before values to move scantable */
-+        for(i=1;i<total_coeff && zeros_left > 0;i++) {
-+            if(zeros_left < 7)
-+                run_before = get_vlc2(gb, run_vlc[zeros_left], RUN_VLC_BITS, 1);
-+            else
-+                run_before = get_vlc2(gb, run7_vlc_table, RUN7_VLC_BITS, 2);
-+            zeros_left -= run_before;
-+            scantable -= 1 + run_before;
-+        }
-+        for(;i<total_coeff;i++) {
-+            scantable--;
-+        }
-+    }else{
-+        /* chroma DC path: same consumption but no dequant/store */
-+        for(i=1;i<total_coeff && zeros_left > 0;i++) {
-+            if(zeros_left < 7)
-+                run_before = get_vlc2(gb, run_vlc[zeros_left], RUN_VLC_BITS, 1);
-+            else
-+                run_before = get_vlc2(gb, run7_vlc_table, RUN7_VLC_BITS, 2);
-+            zeros_left -= run_before;
-+            scantable -= 1 + run_before;
-+        }
-+        for(;i<total_coeff;i++) {
-+            scantable--;
-+        }
++    for(i=1;i<total_coeff && zeros_left > 0;i++) {
++        if(zeros_left < 7)
++            run_before = get_vlc2(gb, run_vlc[zeros_left], RUN_VLC_BITS, 1);
++        else
++            run_before = get_vlc2(gb, run7_vlc_table, RUN7_VLC_BITS, 2);
++        zeros_left -= run_before;
 +    }
 +
 +    if(zeros_left<0){
@@ -776,7 +720,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  {
      int mb_xy;
      int partition_count;
-@@ -1096,15 +1333,15 @@
+@@ -1096,15 +1303,15 @@
              scan    = sl->qscale ? h->zigzag_scan : h->zigzag_scan_q0;
          }
  
@@ -795,7 +739,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                  return -1;
              }
          } else {
-@@ -1112,10 +1349,10 @@
+@@ -1112,22 +1319,24 @@
  
              if(cbp&0x30){
                  for(chroma_idx=0; chroma_idx<2; chroma_idx++)
@@ -810,7 +754,14 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                          return -1;
                      }
              }
-@@ -1127,7 +1364,7 @@
+ 
+             if(cbp&0x20){
+                 for(chroma_idx=0; chroma_idx<2; chroma_idx++){
+-                    const uint32_t *qmul = h->ps.pps->dequant4_coeff[chroma_idx+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[chroma_idx]];
++                    const uint32_t *qmul = NULL;
++                    if (!h->avctx->motion_vectors_only)
++                        qmul = h->ps.pps->dequant4_coeff[chroma_idx+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[chroma_idx]];
+                     int16_t *mb = sl->mb + (16*(16 + 16*chroma_idx) << pixel_shift);
                      for (i8x8 = 0; i8x8<num_c8x8; i8x8++) {
                          for (i4x4 = 0; i4x4 < 4; i4x4++) {
                              const int index = 16 + 16*chroma_idx + 8*i8x8 + i4x4;
@@ -904,7 +855,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
          err = AVERROR_INVALIDDATA;
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/h264_ps.c b/libavcodec/h264_ps.c
 --- a/libavcodec/h264_ps.c	2025-12-18 16:42:39.003411803 +0100
-+++ b/libavcodec/h264_ps.c	2026-02-02 11:57:17.631271808 +0100
++++ b/libavcodec/h264_ps.c	2026-02-23 10:03:53.841677744 +0100
 @@ -133,6 +133,15 @@
  static inline int decode_vui_parameters(GetBitContext *gb, void *logctx,
                                          SPS *sps)
@@ -921,10 +872,60 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
      ff_h2645_decode_common_vui_params(gb, &sps->vui, logctx);
  
      if (show_bits1(gb) && get_bits_left(gb) < 10) {
+@@ -809,12 +818,13 @@
+         pps->chroma_qp_index_offset[1] = pps->chroma_qp_index_offset[0];
+     }
+ 
+-    build_qp_table(pps, 0, pps->chroma_qp_index_offset[0],
+-                   sps->bit_depth_luma);
+-    build_qp_table(pps, 1, pps->chroma_qp_index_offset[1],
+-                   sps->bit_depth_luma);
+-
+-    init_dequant_tables(pps, sps);
++    if (!avctx->motion_vectors_only) {
++        build_qp_table(pps, 0, pps->chroma_qp_index_offset[0], 
++                       sps->bit_depth_luma);
++        build_qp_table(pps, 1, pps->chroma_qp_index_offset[1],
++                       sps->bit_depth_luma);
++        init_dequant_tables(pps, sps);
++    }
+ 
+     if (pps->chroma_qp_index_offset[0] != pps->chroma_qp_index_offset[1])
+         pps->chroma_qp_diff = 1;
+diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/h264_refs.c b/libavcodec/h264_refs.c
+--- a/libavcodec/h264_refs.c	2025-12-18 16:42:39.003411803 +0100
++++ b/libavcodec/h264_refs.c	2026-02-23 09:56:22.992194498 +0100
+@@ -124,6 +124,8 @@
+ 
+ static int mismatches_ref(const H264Context *h, const H264Picture *pic)
+ {
++    if (h->avctx->motion_vectors_only)
++        return 0;
+     const AVFrame *f = pic->f;
+     return (h->cur_pic_ptr->f->width  != f->width ||
+             h->cur_pic_ptr->f->height != f->height ||
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/h264_slice.c b/libavcodec/h264_slice.c
 --- a/libavcodec/h264_slice.c	2025-12-18 16:42:39.007411816 +0100
-+++ b/libavcodec/h264_slice.c	2026-02-11 11:08:56.693596706 +0100
-@@ -191,6 +191,36 @@
++++ b/libavcodec/h264_slice.c	2026-02-23 10:09:45.869601254 +0100
+@@ -129,6 +129,17 @@
+ 
+ static int alloc_scratch_buffers(H264SliceContext *sl, int linesize)
+ {
++    if (sl->h264->avctx->motion_vectors_only) {
++        // Allocate minimal buffers - just enough to avoid NULL checks
++        av_fast_malloc(&sl->bipred_scratchpad,
++                       &sl->bipred_scratchpad_allocated, 64);
++        av_fast_malloc(&sl->edge_emu_buffer,
++                       &sl->edge_emu_buffer_allocated, 64);
++        av_fast_mallocz(&sl->top_borders[0], &sl->top_borders_allocated[0], 64);
++        av_fast_mallocz(&sl->top_borders[1], &sl->top_borders_allocated[1], 64);
++        return (sl->bipred_scratchpad && sl->edge_emu_buffer &&
++                sl->top_borders[0] && sl->top_borders[1]) ? 0 : AVERROR(ENOMEM);
++    }
+     const H264Context *h = sl->h264;
+     int alloc_size = FFALIGN(FFABS(linesize) + 32, 32);
+ 
+@@ -191,6 +202,36 @@
  
      av_assert0(!pic->f->data[0]);
  
@@ -961,7 +962,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
      if (h->sei.common.lcevc.info) {
          HEVCSEILCEVC *lcevc = &h->sei.common.lcevc;
          ret = ff_frame_new_side_data_from_buf(h->avctx, pic->f, AV_FRAME_DATA_LCEVC, &lcevc->info);
-@@ -217,13 +247,6 @@
+@@ -217,13 +258,6 @@
      if (ret < 0)
          goto fail;
  
@@ -975,13 +976,13 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
      if (CONFIG_GRAY && !h->avctx->hwaccel && h->flags & AV_CODEC_FLAG_GRAY && pic->f->data[2]) {
          int h_chroma_shift, v_chroma_shift;
          av_pix_fmt_get_chroma_sub_sample(pic->f->format,
-@@ -237,6 +260,15 @@
+@@ -237,6 +271,15 @@
          }
      }
  
 +motion_vector_tables:
 +    // Motion vector storage (ALWAYS ALLOCATE)
-+    if (h->decode_error_flags_pool) {
++    if (!h->avctx->motion_vectors_only && h->decode_error_flags_pool) {
 +        pic->decode_error_flags = av_refstruct_pool_get(h->decode_error_flags_pool);
 +        if (!pic->decode_error_flags)
 +            goto fail;
@@ -991,7 +992,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
      if (!h->qscale_table_pool) {
          ret = init_table_pools(h);
          if (ret < 0)
-@@ -251,6 +283,7 @@
+@@ -251,6 +294,7 @@
      pic->mb_type      = pic->mb_type_base + 2 * h->mb_stride + 1;
      pic->qscale_table = pic->qscale_table_base + 2 * h->mb_stride + 1;
  
@@ -999,7 +1000,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
      for (i = 0; i < 2; i++) {
          pic->motion_val_base[i] = av_refstruct_pool_get(h->motion_val_pool);
          pic->ref_index[i]       = av_refstruct_pool_get(h->ref_index_pool);
-@@ -575,7 +608,7 @@
+@@ -575,7 +619,7 @@
  
      h->mb_aff_frame = h->ps.sps->mb_aff && (h->picture_structure == PICT_FRAME);
  
@@ -1008,7 +1009,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
          h->x264_build = h->sei.common.unregistered.x264_build;
  
      assert(h->cur_pic_ptr->long_ref == 0);
-@@ -1012,12 +1045,14 @@
+@@ -1012,12 +1056,14 @@
      h->bit_depth_luma             = sps->bit_depth_luma;
  
      ff_h264dsp_init(&h->h264dsp, sps->bit_depth_luma,
@@ -1019,50 +1020,50 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 -                      sps->chroma_format_idc);
 -    ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
 +                    sps->chroma_format_idc, h->avctx->motion_vectors_only);
-+    // if (!h->avctx->motion_vectors_only) {
++    if(!h->avctx->motion_vectors_only) {
 +        ff_h264chroma_init(&h->h264chroma, sps->bit_depth_chroma);
 +        ff_h264qpel_init(&h->h264qpel, sps->bit_depth_luma);
 +        ff_h264_pred_init(&h->hpc, AV_CODEC_ID_H264, sps->bit_depth_luma,
 +                        sps->chroma_format_idc);
 +        ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
-+    // }
++    }
  
      if (!HAVE_THREADS || !(h->avctx->active_thread_type & FF_THREAD_SLICE)) {
          ff_h264_slice_context_init(h, &h->slice_ctx[0]);
-@@ -1561,6 +1596,7 @@
-                 if (h->short_ref[0]->field_picture)
-                     ff_thread_report_progress(&h->short_ref[0]->tf, INT_MAX, 1);
-             } else if (!h->frame_recovered) {
-+                // if (!h->avctx->hwaccel && !h->avctx->motion_vectors_only)
-                 if (!h->avctx->hwaccel)
-                     color_frame(h->short_ref[0]->f, c);
-                 h->short_ref[0]->gray = 1;
-@@ -1680,9 +1716,11 @@
-      * field coded frames, since some SEI information is present for each field
-      * and is merged by the SEI parsing code. */
-     if (!FIELD_PICTURE(h) || !h->first_field || h->missing_fields > 1) {
--        ret = h264_export_frame_props(h);
--        if (ret < 0)
--            return ret;
-+        // if (!h->avctx->motion_vectors_only) {
-+            ret = h264_export_frame_props(h);
-+            if (ret < 0)
-+                return ret;
-+        // }
+@@ -1169,6 +1215,12 @@
  
-         ret = h264_select_output_frame(h);
-         if (ret < 0)
-@@ -2534,7 +2572,8 @@
+ static int h264_export_frame_props(H264Context *h)
+ {
++    if (h->avctx->motion_vectors_only) {
++        // Only export what's needed for reference frame management
++        // POC-based interlacing detection still needed for field pics
++        h->prev_interlaced_frame = FIELD_OR_MBAFF_PICTURE(h);
++        return 0;
++    }
+     const SPS *sps = h->ps.sps;
+     H264Picture *cur = h->cur_pic_ptr;
+     AVFrame *out = cur->f;
+@@ -1938,7 +1990,8 @@
+     if (ret < 0)
+         return ret;
+ 
+-    if (h->ps.pps->weighted_bipred_idc == 2 &&
++    if (!h->avctx->motion_vectors_only &&
++        h->ps.pps->weighted_bipred_idc == 2 &&
+         sl->slice_type_nos == AV_PICTURE_TYPE_B) {
+         implicit_weight_table(h, sl, -1);
+         if (FRAME_MBAFF(h)) {
+@@ -2534,7 +2587,8 @@
          top    = 0;
      }
  
 -    ff_h264_draw_horiz_band(h, sl, top, height);
-+    // if(!h->avctx->motion_vectors_only)
++    if(!h->avctx->motion_vectors_only)
 +        ff_h264_draw_horiz_band(h, sl, top, height);
  
      if (h->droppable || h->er.error_occurred)
          return;
-@@ -2603,6 +2642,18 @@
+@@ -2603,6 +2657,18 @@
  
          ff_h264_init_cabac_states(h, sl);
  
@@ -1081,7 +1082,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
          for (;;) {
              int ret, eos;
              if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
-@@ -2613,19 +2664,23 @@
+@@ -2613,19 +2679,23 @@
                  return AVERROR_INVALIDDATA;
              }
  
@@ -1109,7 +1110,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                  sl->mb_y--;
              }
              eos = get_cabac_terminate(&sl->cabac);
-@@ -2635,7 +2690,9 @@
+@@ -2635,7 +2705,9 @@
                  er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x - 1,
                               sl->mb_y, ER_MB_END);
                  if (sl->mb_x >= lf_x_start)
@@ -1120,7 +1121,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                  goto finish;
              }
              if (sl->cabac.bytestream > sl->cabac.bytestream_end + 2 )
-@@ -2651,7 +2708,9 @@
+@@ -2651,7 +2723,9 @@
              }
  
              if (++sl->mb_x >= h->mb_width) {
@@ -1131,7 +1132,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                  sl->mb_x = lf_x_start = 0;
                  decode_finish_row(h, sl);
                  ++sl->mb_y;
-@@ -2668,11 +2727,21 @@
+@@ -2668,11 +2742,21 @@
                  er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x - 1,
                               sl->mb_y, ER_MB_END);
                  if (sl->mb_x > lf_x_start)
@@ -1154,7 +1155,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
          for (;;) {
              int ret;
  
-@@ -2684,18 +2753,22 @@
+@@ -2684,18 +2768,22 @@
                  return AVERROR_INVALIDDATA;
              }
  
@@ -1181,7 +1182,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                  sl->mb_y--;
              }
  
-@@ -2708,7 +2781,9 @@
+@@ -2708,7 +2796,9 @@
              }
  
              if (++sl->mb_x >= h->mb_width) {
@@ -1192,7 +1193,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
                  sl->mb_x = lf_x_start = 0;
                  decode_finish_row(h, sl);
                  ++sl->mb_y;
-@@ -2744,7 +2819,9 @@
+@@ -2744,7 +2834,9 @@
                      er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y,
                                   sl->mb_x - 1, sl->mb_y, ER_MB_END);
                      if (sl->mb_x > lf_x_start)
@@ -1203,7 +1204,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  
                      goto finish;
                  } else {
-@@ -2822,17 +2899,20 @@
+@@ -2822,17 +2914,20 @@
          if (h->postpone_filter) {
              h->postpone_filter = 0;
  
@@ -1237,7 +1238,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
          }
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/h264dec.c b/libavcodec/h264dec.c
 --- a/libavcodec/h264dec.c	2025-12-18 16:42:39.007411816 +0100
-+++ b/libavcodec/h264dec.c	2026-02-02 10:40:41.957260447 +0100
++++ b/libavcodec/h264dec.c	2026-02-18 15:02:54.255341702 +0100
 @@ -97,7 +97,10 @@
                     pack16to32((*mv)[0][0][0], (*mv)[0][0][1]), 4);
      sl->mb_mbaff =
@@ -1250,16 +1251,41 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  }
  
  void ff_h264_draw_horiz_band(const H264Context *h, H264SliceContext *sl,
+@@ -964,7 +967,11 @@
+         *got_frame = 1;
+ 
+         if (CONFIG_MPEGVIDEODEC) {
+-            ff_print_debug_info2(h->avctx, dst,
++            ff_print_debug_info_func ff_print_debug_info_cust = ff_print_debug_info2;
++            if (h->avctx->motion_vectors_only)
++                ff_print_debug_info_cust = ff_print_debug_info2_optimized;
++
++            ff_print_debug_info_cust(h->avctx, dst,
+                                  out->mb_type,
+                                  out->qscale_table,
+                                  out->motion_val,
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/h264dec.h b/libavcodec/h264dec.h
 --- a/libavcodec/h264dec.h	2025-12-18 16:42:39.007411816 +0100
-+++ b/libavcodec/h264dec.h	2026-02-11 11:07:51.443515627 +0100
-@@ -582,8 +582,134 @@
++++ b/libavcodec/h264dec.h	2026-02-18 14:07:19.106592281 +0100
+@@ -582,8 +582,146 @@
      int skip_gray;
  } H264Context;
  
 +/**
 + * Helper typedefs for motion vector specific functions
 + */
++
++typedef void (*ff_print_debug_info_func)(
++    AVCodecContext        *avctx,
++    AVFrame               *pict,
++    const uint32_t        *mbtype_table,
++    const int8_t          *qscale_table,
++    int16_t (*const        motion_val[2])[2],
++    int                    mb_width,
++    int                    mb_height,
++    int                    mb_stride,
++    int                    quarter_sample
++);
 +
 +typedef void (*cabac_luma_residual_func)(
 +    const H264Context *h, 
@@ -1388,7 +1414,7 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  /**
   * Reconstruct bitstream slice_type.
   */
-@@ -614,13 +740,21 @@
+@@ -614,13 +752,21 @@
   * Decode a macroblock
   * @return 0 if OK, ER_AC_ERROR / ER_DC_ERROR / ER_MV_ERROR on error
   */
@@ -1506,14 +1532,598 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
  void ff_h264dsp_init_aarch64(H264DSPContext *c, const int bit_depth,
                               const int chroma_format_idc);
  void ff_h264dsp_init_arm(H264DSPContext *c, const int bit_depth,
+diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/hevc/cabac.c b/libavcodec/hevc/cabac.c
+--- a/libavcodec/hevc/cabac.c	2025-12-18 16:42:39.011411829 +0100
++++ b/libavcodec/hevc/cabac.c	2026-02-18 16:50:58.132128888 +0100
+@@ -1002,13 +1002,9 @@
+     int x_cg_last_sig, y_cg_last_sig;
+ 
+     const uint8_t *scan_x_cg, *scan_y_cg, *scan_x_off, *scan_y_off;
++    
++    const int mv_only = s->motion_vectors_only;
+ 
+-    ptrdiff_t stride = s->cur_frame->f->linesize[c_idx];
+-    int hshift = sps->hshift[c_idx];
+-    int vshift = sps->vshift[c_idx];
+-    uint8_t *dst = &s->cur_frame->f->data[c_idx][(y0 >> vshift) * stride +
+-                                          ((x0 >> hshift) << sps->pixel_shift)];
+-    int16_t *coeffs = (int16_t*)(c_idx ? lc->edge_emu_buffer2 : lc->edge_emu_buffer);
+     uint8_t significant_coeff_group_flag[8][8] = {{0}};
+     int explicit_rdpcm_flag = 0;
+     int explicit_rdpcm_dir_flag;
+@@ -1022,10 +1018,22 @@
+     int pred_mode_intra = (c_idx == 0) ? lc->tu.intra_pred_mode :
+                                          lc->tu.intra_pred_mode_c;
+ 
+-    memset(coeffs, 0, trafo_size * trafo_size * sizeof(int16_t));
+-
++    ptrdiff_t stride = 0;
++    int hshift = 0, vshift = 0;
++    uint8_t *dst = NULL;
++    int16_t *coeffs = NULL;
++ 
++    if (!mv_only) {
++        stride = s->cur_frame->f->linesize[c_idx];
++        hshift = sps->hshift[c_idx];
++        vshift = sps->vshift[c_idx];
++        dst = &s->cur_frame->f->data[c_idx][(y0 >> vshift) * stride +
++                                             ((x0 >> hshift) << sps->pixel_shift)];
++        coeffs = (int16_t*)(c_idx ? lc->edge_emu_buffer2 : lc->edge_emu_buffer);
++        memset(coeffs, 0, trafo_size * trafo_size * sizeof(int16_t));
++    } 
+     // Derive QP for dequant
+-    if (!lc->cu.cu_transquant_bypass_flag) {
++    if (!lc->cu.cu_transquant_bypass_flag && !mv_only) {
+         static const int qp_c[] = { 29, 30, 31, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37 };
+         static const uint8_t rem6[51 + 4 * 6 + 1] = {
+             0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2,
+@@ -1094,6 +1102,15 @@
+             if (log2_trafo_size >= 4)
+                 dc_scale = sl->sl_dc[log2_trafo_size - 4][matrix_id];
+         }
++    } else if (mv_only) {
++        /* In MV-only mode, we still need to parse transform_skip_flag
++         * if it's in the bitstream (CABAC sync) */
++        if (!lc->cu.cu_transquant_bypass_flag &&
++            pps->transform_skip_enabled_flag &&
++            log2_trafo_size <= pps->log2_max_transform_skip_block_size) {
++            transform_skip_flag = hevc_transform_skip_flag_decode(lc, c_idx);
++        }
++        shift = add = scale = scale_m = dc_scale = qp = 0;
+     } else {
+         shift        = 0;
+         add          = 0;
+@@ -1400,6 +1417,15 @@
+                         rice_init = 1;
+                     }
+                 }
++
++                if (mv_only) {
++                    /* Skip sign application, dequant, and coefficient storage */
++                    if (pps->sign_data_hiding_flag && sign_hidden)
++                        sum_abs += trans_coeff_level;
++                    coeff_sign_flag <<= 1;
++                    continue;
++                }
++
+                 if (pps->sign_data_hiding_flag && sign_hidden) {
+                     sum_abs += trans_coeff_level;
+                     if (n == first_nz_pos_in_cg && (sum_abs&1))
+@@ -1436,6 +1462,9 @@
+         }
+     }
+ 
++    if (mv_only)
++        return;
++
+     if (lc->cu.cu_transquant_bypass_flag) {
+         if (explicit_rdpcm_flag || (sps->implicit_rdpcm_enabled &&
+                                     (pred_mode_intra == 10 || pred_mode_intra == 26))) {
+diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/hevc/filter.c b/libavcodec/hevc/filter.c
+--- a/libavcodec/hevc/filter.c	2025-12-18 16:42:39.011411829 +0100
++++ b/libavcodec/hevc/filter.c	2026-02-23 10:02:39.218873630 +0100
+@@ -876,6 +876,13 @@
+     const HEVCSPS   *const sps = pps->sps;
+     const HEVCContext *const s = lc->parent;
+     int x_end = x >= sps->width  - ctb_size;
++    
++     if (s->motion_vectors_only) {
++        if (s->avctx->active_thread_type & FF_THREAD_FRAME && x_end)
++            ff_progress_frame_report(&s->cur_frame->tf, y + ctb_size - 4);
++        return;
++    }
++
+     int skip = 0;
+     if (s->avctx->skip_loop_filter >= AVDISCARD_ALL ||
+         (s->avctx->skip_loop_filter >= AVDISCARD_NONKEY && !IS_IDR(s)) ||
+diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/hevc/hevcdec.c b/libavcodec/hevc/hevcdec.c
+--- a/libavcodec/hevc/hevcdec.c	2026-02-18 16:43:53.122831319 +0100
++++ b/libavcodec/hevc/hevcdec.c	2026-02-23 10:09:57.254837576 +0100
+@@ -1309,7 +1309,7 @@
+     const int log2_trafo_size_c = log2_trafo_size - sps->hshift[1];
+     int i;
+ 
+-    if (lc->cu.pred_mode == MODE_INTRA) {
++    if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
+         int trafo_size = 1 << log2_trafo_size;
+         ff_hevc_set_neighbour_available(lc, x0, y0, trafo_size, trafo_size, sps->log2_ctb_size);
+ 
+@@ -1397,7 +1397,7 @@
+                 hls_cross_component_pred(lc, 0);
+             }
+             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
+-                if (lc->cu.pred_mode == MODE_INTRA) {
++                if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
+                     ff_hevc_set_neighbour_available(lc, x0, y0 + (i << log2_trafo_size_c),
+                                                     trafo_size_h, trafo_size_v, sps->log2_ctb_size);
+                     s->hpc.intra_pred[log2_trafo_size_c - 2](lc, pps, x0, y0 + (i << log2_trafo_size_c), 1);
+@@ -1405,7 +1405,7 @@
+                 if (cbf_cb[i])
+                     ff_hevc_hls_residual_coding(lc, pps, x0, y0 + (i << log2_trafo_size_c),
+                                                 log2_trafo_size_c, scan_idx_c, 1);
+-                else
++                else if (!s->motion_vectors_only)
+                     if (lc->tu.cross_pf) {
+                         ptrdiff_t stride = s->cur_frame->f->linesize[1];
+                         int hshift = sps->hshift[1];
+@@ -1427,7 +1427,7 @@
+                 hls_cross_component_pred(lc, 1);
+             }
+             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
+-                if (lc->cu.pred_mode == MODE_INTRA) {
++                if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
+                     ff_hevc_set_neighbour_available(lc, x0, y0 + (i << log2_trafo_size_c),
+                                                     trafo_size_h, trafo_size_v, sps->log2_ctb_size);
+                     s->hpc.intra_pred[log2_trafo_size_c - 2](lc, pps, x0, y0 + (i << log2_trafo_size_c), 2);
+@@ -1435,7 +1435,7 @@
+                 if (cbf_cr[i])
+                     ff_hevc_hls_residual_coding(lc, pps, x0, y0 + (i << log2_trafo_size_c),
+                                                 log2_trafo_size_c, scan_idx_c, 2);
+-                else
++                else if (!s->motion_vectors_only)
+                     if (lc->tu.cross_pf) {
+                         ptrdiff_t stride = s->cur_frame->f->linesize[2];
+                         int hshift = sps->hshift[2];
+@@ -1456,7 +1456,7 @@
+             int trafo_size_h = 1 << (log2_trafo_size + 1);
+             int trafo_size_v = 1 << (log2_trafo_size + sps->vshift[1]);
+             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
+-                if (lc->cu.pred_mode == MODE_INTRA) {
++                if (lc->cu.pred_mode == MODE_INTRA &&!s->motion_vectors_only) {
+                     ff_hevc_set_neighbour_available(lc, xBase, yBase + (i << log2_trafo_size),
+                                                     trafo_size_h, trafo_size_v, sps->log2_ctb_size);
+                     s->hpc.intra_pred[log2_trafo_size - 2](lc, pps, xBase, yBase + (i << log2_trafo_size), 1);
+@@ -1466,7 +1466,7 @@
+                                                 log2_trafo_size, scan_idx_c, 1);
+             }
+             for (i = 0; i < (sps->chroma_format_idc == 2 ? 2 : 1); i++) {
+-                if (lc->cu.pred_mode == MODE_INTRA) {
++                if (lc->cu.pred_mode == MODE_INTRA && !s->motion_vectors_only) {
+                     ff_hevc_set_neighbour_available(lc, xBase, yBase + (i << log2_trafo_size),
+                                                 trafo_size_h, trafo_size_v, sps->log2_ctb_size);
+                     s->hpc.intra_pred[log2_trafo_size - 2](lc, pps, xBase, yBase + (i << log2_trafo_size), 2);
+@@ -1476,7 +1476,7 @@
+                                                 log2_trafo_size, scan_idx_c, 2);
+             }
+         }
+-    } else if (sps->chroma_format_idc && lc->cu.pred_mode == MODE_INTRA) {
++    } else if (sps->chroma_format_idc && lc->cu.pred_mode == MODE_INTRA &&!s->motion_vectors_only) {
+         if (log2_trafo_size > 2 || sps->chroma_format_idc == 3) {
+             int trafo_size_h = 1 << (log2_trafo_size_c + sps->hshift[1]);
+             int trafo_size_v = 1 << (log2_trafo_size_c + sps->vshift[1]);
+@@ -1633,21 +1633,24 @@
+                                  blk_idx, cbf_luma, cbf_cb, cbf_cr);
+         if (ret < 0)
+             return ret;
+-        // TODO: store cbf_luma somewhere else
+-        if (cbf_luma) {
+-            int i, j;
+-            for (i = 0; i < (1 << log2_trafo_size); i += min_tu_size)
+-                for (j = 0; j < (1 << log2_trafo_size); j += min_tu_size) {
+-                    int x_tu = (x0 + j) >> log2_min_tu_size;
+-                    int y_tu = (y0 + i) >> log2_min_tu_size;
+-                    l->cbf_luma[y_tu * min_tu_width + x_tu] = 1;
+-                }
+-        }
+-        if (!s->sh.disable_deblocking_filter_flag) {
+-            ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_trafo_size);
+-            if (pps->transquant_bypass_enable_flag &&
+-                lc->cu.cu_transquant_bypass_flag)
+-                set_deblocking_bypass(l->is_pcm, sps, x0, y0, log2_trafo_size);
++
++        if (!s->motion_vectors_only) {
++            // TODO: store cbf_luma somewhere else
++            if (cbf_luma) {
++                int i, j;
++                for (i = 0; i < (1 << log2_trafo_size); i += min_tu_size)
++                    for (j = 0; j < (1 << log2_trafo_size); j += min_tu_size) {
++                        int x_tu = (x0 + j) >> log2_min_tu_size;
++                        int y_tu = (y0 + i) >> log2_min_tu_size;
++                        l->cbf_luma[y_tu * min_tu_width + x_tu] = 1;
++                    }
++            }
++            if (!s->sh.disable_deblocking_filter_flag) {
++                ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_trafo_size);
++                if (pps->transquant_bypass_enable_flag &&
++                    lc->cu.cu_transquant_bypass_flag)
++                    set_deblocking_bypass(l->is_pcm, sps, x0, y0, log2_trafo_size);
++            }
+         }
+     }
+     return 0;
+@@ -1658,26 +1661,30 @@
+ {
+     const HEVCContext *const s = lc->parent;
+     const HEVCSPS   *const sps = pps->sps;
+-    GetBitContext gb;
++
+     int cb_size   = 1 << log2_cb_size;
+-    ptrdiff_t stride0 = s->cur_frame->f->linesize[0];
+-    ptrdiff_t stride1 = s->cur_frame->f->linesize[1];
+-    ptrdiff_t stride2 = s->cur_frame->f->linesize[2];
+-    uint8_t *dst0 = &s->cur_frame->f->data[0][y0 * stride0 + (x0 << sps->pixel_shift)];
+-    uint8_t *dst1 = &s->cur_frame->f->data[1][(y0 >> sps->vshift[1]) * stride1 + ((x0 >> sps->hshift[1]) << sps->pixel_shift)];
+-    uint8_t *dst2 = &s->cur_frame->f->data[2][(y0 >> sps->vshift[2]) * stride2 + ((x0 >> sps->hshift[2]) << sps->pixel_shift)];
+ 
+     int length         = cb_size * cb_size * sps->pcm.bit_depth +
+                          (((cb_size >> sps->hshift[1]) * (cb_size >> sps->vshift[1])) +
+                           ((cb_size >> sps->hshift[2]) * (cb_size >> sps->vshift[2]))) *
+                           sps->pcm.bit_depth_chroma;
+     const uint8_t *pcm = skip_bytes(&lc->cc, (length + 7) >> 3);
+-    int ret;
+ 
+-    if (!s->sh.disable_deblocking_filter_flag)
++    if (!s->sh.disable_deblocking_filter_flag && !s->motion_vectors_only)
+         ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_cb_size);
+ 
+-    ret = init_get_bits(&gb, pcm, length);
++    if (s->motion_vectors_only)
++        return 0;  /* Skip pixel writing entirely */                
++
++    GetBitContext gb;
++    ptrdiff_t stride0 = s->cur_frame->f->linesize[0];
++    ptrdiff_t stride1 = s->cur_frame->f->linesize[1];
++    ptrdiff_t stride2 = s->cur_frame->f->linesize[2];
++    uint8_t *dst0 = &s->cur_frame->f->data[0][y0 * stride0 + (x0 << sps->pixel_shift)];
++    uint8_t *dst1 = &s->cur_frame->f->data[1][(y0 >> sps->vshift[1]) * stride1 + ((x0 >> sps->hshift[1]) << sps->pixel_shift)];
++    uint8_t *dst2 = &s->cur_frame->f->data[2][(y0 >> sps->vshift[2]) * stride2 + ((x0 >> sps->hshift[2]) << sps->pixel_shift)];
++    
++    int ret = init_get_bits(&gb, pcm, length);
+     if (ret < 0)
+         return ret;
+ 
+@@ -2109,10 +2116,6 @@
+     MvField *tab_mvf = s->cur_frame->tab_mvf;
+     const RefPicList *refPicList = s->cur_frame->refPicList;
+     const HEVCFrame *ref0 = NULL, *ref1 = NULL;
+-    const int *linesize = s->cur_frame->f->linesize;
+-    uint8_t *dst0 = s->cur_frame->f->data[0] + y0 * linesize[0] + (x0 << sps->pixel_shift);
+-    uint8_t *dst1 = POS(1, x0, y0);
+-    uint8_t *dst2 = POS(2, x0, y0);
+     int log2_min_cb_size = sps->log2_min_cb_size;
+     int min_cb_width     = sps->min_cb_width;
+     int x_cb             = x0 >> log2_min_cb_size;
+@@ -2145,6 +2148,14 @@
+         for (i = 0; i < nPbW >> sps->log2_min_pu_size; i++)
+             tab_mvf[(y_pu + j) * min_pu_width + x_pu + i] = current_mv;
+ 
++    if (s->motion_vectors_only)
++       return;
++
++    const int *linesize = s->cur_frame->f->linesize;
++    uint8_t *dst0 = s->cur_frame->f->data[0] + y0 * linesize[0] + (x0 << sps->pixel_shift);
++    uint8_t *dst1 = POS(1, x0, y0);
++    uint8_t *dst2 = POS(2, x0, y0);
++
+     if (current_mv.pred_flag & PF_L0) {
+         ref0 = refPicList[0].ref[current_mv.ref_idx[0]];
+         if (!ref0 || !ref0->f)
+@@ -2472,7 +2483,7 @@
+                             x0, y0, cb_size, cb_size, log2_cb_size, 0, idx);
+         intra_prediction_unit_default_value(lc, l, sps, x0, y0, log2_cb_size);
+ 
+-        if (!s->sh.disable_deblocking_filter_flag)
++        if (!s->sh.disable_deblocking_filter_flag && !s->motion_vectors_only)
+             ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_cb_size);
+     } else {
+         int pcm_flag = 0;
+@@ -2577,7 +2588,7 @@
+                 if (ret < 0)
+                     return ret;
+             } else {
+-                if (!s->sh.disable_deblocking_filter_flag)
++                if (!s->sh.disable_deblocking_filter_flag && !s->motion_vectors_only)
+                     ff_hevc_deblocking_boundary_strengths(lc, l, pps, x0, y0, log2_cb_size);
+             }
+         }
+@@ -2777,9 +2788,11 @@
+         hls_sao_param(lc, l, pps, sps,
+                       x_ctb >> sps->log2_ctb_size, y_ctb >> sps->log2_ctb_size);
+ 
+-        l->deblock[ctb_addr_rs].beta_offset = s->sh.beta_offset;
+-        l->deblock[ctb_addr_rs].tc_offset   = s->sh.tc_offset;
+-        l->filter_slice_edges[ctb_addr_rs]  = s->sh.slice_loop_filter_across_slices_enabled_flag;
++        if (!s->motion_vectors_only) {
++            l->deblock[ctb_addr_rs].beta_offset = s->sh.beta_offset;
++            l->deblock[ctb_addr_rs].tc_offset   = s->sh.tc_offset;
++            l->filter_slice_edges[ctb_addr_rs]  = s->sh.slice_loop_filter_across_slices_enabled_flag;
++        }
+ 
+         more_data = hls_coding_quadtree(lc, l, pps, sps, x_ctb, y_ctb, sps->log2_ctb_size, 0);
+         if (more_data < 0) {
+@@ -2790,7 +2803,8 @@
+ 
+         ctb_addr_ts++;
+         ff_hevc_save_states(lc, pps, ctb_addr_ts);
+-        ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
++        if (!s->motion_vectors_only)
++            ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
+     }
+ 
+     if (x_ctb + ctb_size >= sps->width &&
+@@ -2848,9 +2862,11 @@
+         hls_sao_param(lc, l, pps, sps,
+                       x_ctb >> sps->log2_ctb_size, y_ctb >> sps->log2_ctb_size);
+ 
+-        l->deblock[ctb_addr_rs].beta_offset = s->sh.beta_offset;
+-        l->deblock[ctb_addr_rs].tc_offset   = s->sh.tc_offset;
+-        l->filter_slice_edges[ctb_addr_rs]  = s->sh.slice_loop_filter_across_slices_enabled_flag;
++        if (!s->motion_vectors_only) {
++            l->deblock[ctb_addr_rs].beta_offset = s->sh.beta_offset;
++            l->deblock[ctb_addr_rs].tc_offset   = s->sh.tc_offset;
++            l->filter_slice_edges[ctb_addr_rs]  = s->sh.slice_loop_filter_across_slices_enabled_flag;
++        }
+ 
+         more_data = hls_coding_quadtree(lc, l, pps, sps, x_ctb, y_ctb, sps->log2_ctb_size, 0);
+ 
+@@ -2863,7 +2879,8 @@
+ 
+         ff_hevc_save_states(lc, pps, ctb_addr_ts);
+         ff_thread_progress_report(&s->wpp_progress[ctb_row], ++progress);
+-        ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
++        if (!s->motion_vectors_only)
++            ff_hevc_hls_filters(lc, l, pps, x_ctb, y_ctb, ctb_size);
+ 
+         if (!more_data && (x_ctb+ctb_size) < sps->width && ctb_row != s->sh.num_entry_point_offsets) {
+             /* Casting const away here is safe, because it is an atomic operation. */
+@@ -3345,7 +3362,8 @@
+     else
+         s->cur_frame->f->flags &= ~AV_FRAME_FLAG_KEY;
+ 
+-    s->cur_frame->needs_fg = ((s->sei.common.film_grain_characteristics &&
++    s->cur_frame->needs_fg = !s->motion_vectors_only &&
++                             ((s->sei.common.film_grain_characteristics &&
+                                s->sei.common.film_grain_characteristics->present) ||
+                               s->sei.common.aom_film_grain.enable) &&
+         !(s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_FILM_GRAIN) &&
+@@ -3625,6 +3643,13 @@
+     const AVFilmGrainParams *fgp;
+     av_unused int ret;
+ 
++    if (s->motion_vectors_only) {
++        s->sei.picture_hash.is_md5 = 0;
++        av_log(s->avctx, AV_LOG_DEBUG, "MV-only: Decoded frame with POC %zu/%d.\n",
++               l - s->layers, s->poc);
++        return 0;
++    }
++
+     if (out->needs_fg) {
+         av_assert0(out->frame_grain->buf[0]);
+         fgp = av_film_grain_params_select(out->f);
+@@ -3970,6 +3995,7 @@
+     AVCodecInternal *avci = avctx->internal;
+     AVPacket       *avpkt = avci->in_pkt;
+ 
++    s->motion_vectors_only = avctx->motion_vectors_only;
+     int ret;
+     uint8_t *sd;
+     size_t sd_size;
+@@ -4345,6 +4371,8 @@
+         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
+     { "strict-displaywin", "strictly apply default display window size", OFFSET(apply_defdispwin),
+         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
++    { "motion_vectors_only", "Skip pixel reconstruction, only extract motion vectors",
++        OFFSET(motion_vectors_only), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
+     { "view_ids", "Array of view IDs that should be decoded and output; a single -1 to decode all views",
+         .offset = OFFSET(view_ids), .type = AV_OPT_TYPE_INT | AV_OPT_TYPE_FLAG_ARRAY,
+         .min = -1, .max = INT_MAX, .flags = PAR },
+diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/hevc/hevcdec.h b/libavcodec/hevc/hevcdec.h
+--- a/libavcodec/hevc/hevcdec.h	2026-02-11 18:33:43.884059915 +0100
++++ b/libavcodec/hevc/hevcdec.h	2026-02-11 18:33:43.884059915 +0100
+@@ -563,6 +563,7 @@
+     int is_nalff;           ///< this flag is != 0 if bitstream is encapsulated
+                             ///< as a format defined in 14496-15
+     int apply_defdispwin;
++    int motion_vectors_only;
+ 
+     // multi-layer AVOptions
+     int         *view_ids;
+diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/mpegutils.c b/libavcodec/mpegutils.c
+--- a/libavcodec/mpegutils.c	2025-12-18 16:42:39.099412121 +0100
++++ b/libavcodec/mpegutils.c	2026-02-18 15:25:12.221073483 +0100
+@@ -247,6 +247,158 @@
+     if (avctx->hwaccel || !mbtype_table)
+         return;
+ 
++    if (avctx->debug & (FF_DEBUG_QP | FF_DEBUG_MB_TYPE)) {
++        int x,y;
++        AVBPrint buf;
++        int n;
++        int margin_left;
++        int x_step;
++
++        av_log(avctx, AV_LOG_DEBUG, "New frame, type: %c\n",
++               av_get_picture_type_char(pict->pict_type));
++
++        margin_left = 2;
++        n = mb_width << 4;
++        while ((n /= 10))
++            margin_left++;
++
++        av_bprint_init(&buf, 1, AV_BPRINT_SIZE_UNLIMITED);
++        av_bprint_chars(&buf, ' ', margin_left);
++
++        n = 0;
++        if (avctx->debug & FF_DEBUG_QP)
++            n += 2;
++        if (avctx->debug & FF_DEBUG_MB_TYPE)
++            n += 3;
++        x_step = (mb_width * 16 > 999) ? 8 : 4;
++        for (x = 0; x < mb_width; x += x_step)
++            av_bprintf(&buf, "%-*d", n * x_step, x << 4);
++
++        av_log(avctx, AV_LOG_DEBUG, "%s\n", buf.str);
++
++        for (y = 0; y < mb_height; y++) {
++            av_bprint_clear(&buf);
++            for (x = 0; x < mb_width; x++) {
++                if (x == 0)
++                    av_bprintf(&buf, "%*d ", margin_left - 1, y << 4);
++                if (avctx->debug & FF_DEBUG_QP) {
++                    av_bprintf(&buf, "%2d", qscale_table[x + y * mb_stride]);
++                }
++                if (avctx->debug & FF_DEBUG_MB_TYPE) {
++                    int mb_type = mbtype_table[x + y * mb_stride];
++
++                    av_bprintf(&buf, "%c%c%c",
++                           get_type_mv_char(mb_type, mb_type_mv_flags),
++                           get_segmentation_char(mb_type),
++                           get_interlacement_char(mb_type));
++                }
++            }
++
++            av_log(avctx, AV_LOG_DEBUG, "%s\n", buf.str);
++        }
++        av_bprint_finalize(&buf, NULL);
++    }
++}
++
++void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
++                          const uint32_t *mbtype_table,
++                          const int8_t *qscale_table, int16_t (*const motion_val[2])[2],
++                          int mb_width, int mb_height, int mb_stride, int quarter_sample)
++{
++    const int is_h264 = avctx->codec_id == AV_CODEC_ID_H264;
++    const int mb_type_mv_flags[2] = { is_h264 ? MB_TYPE_L0 : MB_TYPE_FORWARD_MV,
++                                      is_h264 ? MB_TYPE_L1 : MB_TYPE_BACKWARD_MV };
++
++    if ((avctx->export_side_data & AV_CODEC_EXPORT_DATA_MVS) && mbtype_table && motion_val[0]) {
++        const int shift = 1 + quarter_sample;
++        const int scale = 1 << shift;
++        const int mv_sample_log2 = is_h264 ? 2 : 1;
++        const int mv_stride      = (mb_width << mv_sample_log2) + !is_h264;
++        int mb_x, mb_y, mbcount = 0;
++        const int max_mvs        = mb_width * mb_height * 2 * 4;
++
++        // --- Optimization 1: allocate directly into side data, skip temp buffer + memcpy ---
++        AVFrameSideData *sd = av_frame_new_side_data(pict, AV_FRAME_DATA_MOTION_VECTORS,
++                                    max_mvs * sizeof(AVMotionVector));
++        if (!sd)
++            goto debug_section;
++
++        AVMotionVector *mvs = (AVMotionVector *)sd->data;
++
++        for (mb_y = 0; mb_y < mb_height; mb_y++) {
++            for (mb_x = 0; mb_x < mb_width; mb_x++) {
++                int i, direction, mb_type = mbtype_table[mb_x + mb_y * mb_stride];
++
++                if (IS_INTRA(mb_type))
++                    continue;
++
++                for (direction = 0; direction < 2; direction++) {
++                    if (!HAS_MV_EXT(mb_type, direction, mb_type_mv_flags))
++                        continue;
++                    if (IS_8X8(mb_type)) {
++                        for (i = 0; i < 4; i++) {
++                            int sx = mb_x * 16 + 4 + 8 * (i & 1);
++                            int sy = mb_y * 16 + 4 + 8 * (i >> 1);
++                            int xy = (mb_x * 2 + (i & 1) +
++                                      (mb_y * 2 + (i >> 1)) * mv_stride) << (mv_sample_log2 - 1);
++                            int mx = motion_val[direction][xy][0];
++                            int my = motion_val[direction][xy][1];
++                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
++                        }
++                    } else if (IS_16X8(mb_type)) {
++                        for (i = 0; i < 2; i++) {
++                            int sx = mb_x * 16 + 8;
++                            int sy = mb_y * 16 + 4 + 8 * i;
++                            int xy = (mb_x * 2 + (mb_y * 2 + i) * mv_stride) << (mv_sample_log2 - 1);
++                            int mx = motion_val[direction][xy][0];
++                            int my = motion_val[direction][xy][1];
++
++                            if (IS_INTERLACED(mb_type))
++                                my *= 2;
++
++                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
++                        }
++                    } else if (IS_8X16(mb_type)) {
++                        for (i = 0; i < 2; i++) {
++                            int sx = mb_x * 16 + 4 + 8 * i;
++                            int sy = mb_y * 16 + 8;
++                            int xy = (mb_x * 2 + i + mb_y * 2 * mv_stride) << (mv_sample_log2 - 1);
++                            int mx = motion_val[direction][xy][0];
++                            int my = motion_val[direction][xy][1];
++
++                            if (IS_INTERLACED(mb_type))
++                                my *= 2;
++
++                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
++                        }
++                    } else {
++                          int sx = mb_x * 16 + 8;
++                          int sy = mb_y * 16 + 8;
++                          int xy = (mb_x + mb_y * mv_stride) << mv_sample_log2;
++                          int mx = motion_val[direction][xy][0];
++                          int my = motion_val[direction][xy][1];
++                          mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
++                    }
++                }
++            }
++        }
++
++        if (mbcount) {
++            av_log(avctx, AV_LOG_DEBUG, "Adding %d MVs info to frame %"PRId64"\n", mbcount, avctx->frame_num);
++            sd->size = mbcount * sizeof(AVMotionVector);
++        } else {
++            av_frame_remove_side_data(pict, AV_FRAME_DATA_MOTION_VECTORS);
++        }
++    }
++
++debug_section:
++    // --- Optimization 4: early exit skips debug section entirely in production ---
++    if (!(avctx->debug & (FF_DEBUG_QP | FF_DEBUG_MB_TYPE)))
++        return;
++
++    /* TODO: export all the following to make them accessible for users (and filters) */
++    if (avctx->hwaccel || !mbtype_table)
++        return;
+ 
+     if (avctx->debug & (FF_DEBUG_QP | FF_DEBUG_MB_TYPE)) {
+         int x,y;
+diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/mpegutils.h b/libavcodec/mpegutils.h
+--- a/libavcodec/mpegutils.h	2025-12-18 16:42:39.099412121 +0100
++++ b/libavcodec/mpegutils.h	2026-02-18 14:05:02.210537502 +0100
+@@ -109,4 +109,12 @@
+                           const int8_t *qscale_table, int16_t (*const motion_val[2])[2],
+                           int mb_width, int mb_height, int mb_stride, int quarter_sample);
+ 
++/**
++ * Print debugging info for the given picture.
++ */
++void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
++                          const uint32_t *mbtype_table,
++                          const int8_t *qscale_table, int16_t (*const motion_val[2])[2],
++                          int mb_width, int mb_height, int mb_stride, int quarter_sample);
++
+ #endif /* AVCODEC_MPEGUTILS_H */
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/options_table.h b/libavcodec/options_table.h
 --- a/libavcodec/options_table.h	2025-12-18 16:42:39.111412161 +0100
-+++ b/libavcodec/options_table.h	2026-01-26 14:54:18.379981697 +0100
++++ b/libavcodec/options_table.h	2026-02-23 09:44:19.967610706 +0100
 @@ -72,6 +72,7 @@
  {"bitexact", "use only bitexact functions (except (I)DCT)", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_BITEXACT }, INT_MIN, INT_MAX, A|V|S|D|E, .unit = "flags"},
  {"aic", "H.263 advanced intra coding / MPEG-4 AC prediction", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_AC_PRED }, INT_MIN, INT_MAX, V|E, .unit = "flags"},
  {"ilme", "interlaced motion estimation", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_INTERLACED_ME }, INT_MIN, INT_MAX, V|E, .unit = "flags"},
-+{ "motion_vectors_only", "Only decode motion vectors", offsetof(AVCodecContext, motion_vectors_only), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_AUDIO_PARAM | AV_OPT_FLAG_VIDEO_PARAM }, {"ilme", "interlaced motion estimation", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_INTERLACED_ME }, INT_MIN, INT_MAX, V|E, .unit = "flags"},
++{"motion_vectors_only", "Only decode motion vectors", offsetof(AVCodecContext, motion_vectors_only), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_AUDIO_PARAM | AV_OPT_FLAG_VIDEO_PARAM },
  {"cgop", "closed GOP", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_CLOSED_GOP }, INT_MIN, INT_MAX, V|E, .unit = "flags"},
  {"output_corrupt", "Output even potentially corrupted frames", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_OUTPUT_CORRUPT }, INT_MIN, INT_MAX, V|D, .unit = "flags"},
  {"flags2", NULL, OFFSET(flags2), AV_OPT_TYPE_FLAGS, {.i64 = DEFAULT}, 0, UINT_MAX, V|A|E|D|S, .unit = "flags2"},
@@ -1532,89 +2142,10 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
      ff_h264_pred_init(&s->hpc, AV_CODEC_ID_SVQ3, 8, 1);
      ff_videodsp_init(&s->vdsp, 8);
  
-diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/x86/cabac.h b/libavcodec/x86/cabac.h
---- a/libavcodec/x86/cabac.h	2025-12-18 16:42:39.211412492 +0100
-+++ b/libavcodec/x86/cabac.h	2026-02-09 21:08:13.400637701 +0100
-@@ -302,6 +302,75 @@
-     );
-     return res;
- }
-+
-+// Possibly broken
-+// MOTION VECTOR OPTIMIZED - Ultra-fast sign parsing for coefficient skipping
-+#define get_cabac_bypass_sign_skip get_cabac_bypass_sign_skip_x86
-+static av_always_inline int get_cabac_bypass_sign_skip_x86(CABACContext *c, int val)
-+{
-+    // Ultra-simplified sign parsing - just consume the bit without applying sign
-+    __asm__ volatile(
-+        "movl      %c2(%0)      , %%eax              \n\t"
-+        "add       %%eax        , %%eax              \n\t" // Consume sign bit
-+        "movl      %%eax        , %c2(%0)            \n\t"
-+        
-+        // Simple refill if needed
-+        "test      $0xFFFF      , %%eax              \n\t"
-+        "jnz       1f                                \n\t"
-+        "mov       %c3(%0)      , %%ecx              \n\t"
-+        "movzwl    (%%ecx)      , %%edx              \n\t"
-+        "bswap     %%edx                             \n\t"
-+        "shr       $16          , %%edx              \n\t"
-+        "add       %%edx        , %%eax              \n\t"
-+        "add       $2           , %%ecx              \n\t"
-+        "movl      %%eax        , %c2(%0)            \n\t"
-+        "mov       %%ecx        , %c3(%0)            \n\t"
-+        "1:                                          \n\t"
-+        
-+        : "+r"(c), "+c"(val)
-+        : "i"(offsetof(CABACContext, low)),
-+          "i"(offsetof(CABACContext, bytestream))
-+        : "%eax", "%ecx", "%edx", "memory"
-+    );
-+    return val; // Return original value - sign not applied for MV mode
-+}
-+
-+// MOTION VECTOR OPTIMIZED - Ultra-fast bypass for coefficient skipping
-+#define get_cabac_bypass_skip get_cabac_bypass_skip_x86
-+static av_always_inline int get_cabac_bypass_skip_x86(CABACContext *c)
-+{
-+    int res;
-+    
-+    // Ultra-simplified bypass - 4x faster for coefficient consumption
-+    __asm__ volatile(
-+        "movl      %c2(%1)      , %%eax              \n\t"
-+        "add       %%eax        , %%eax              \n\t" // Shift left
-+        "setc      %%al                              \n\t" // Get carry bit
-+        "movzbl    %%al         , %0                 \n\t"
-+        "movl      %%eax        , %c2(%1)            \n\t"
-+        
-+        // Minimal refill 
-+        "test      $0xFFFF      , %%eax              \n\t"
-+        "jnz       1f                                \n\t"
-+        "mov       %c3(%1)      , %%ecx              \n\t"
-+        "movzwl    (%%ecx)      , %%edx              \n\t"
-+        "bswap     %%edx                             \n\t"
-+        "shr       $16          , %%edx              \n\t"
-+        "add       %%edx        , %%eax              \n\t"
-+        "add       $2           , %%ecx              \n\t"
-+        "movl      %%eax        , %c2(%1)            \n\t"
-+        "mov       %%ecx        , %c3(%1)            \n\t"
-+        "1:                                          \n\t"
-+        
-+        : "=r"(res)
-+        : "r"(c),
-+          "i"(offsetof(CABACContext, low)),
-+          "i"(offsetof(CABACContext, bytestream))
-+        : "%eax", "%ecx", "%edx", "memory"
-+    );
-+    return res;
-+}
-+
- #endif /* !BROKEN_COMPILER */
- 
- #endif /* HAVE_INLINE_ASM */
 diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/libavcodec/x86/h264_cabac.c b/libavcodec/x86/h264_cabac.c
 --- a/libavcodec/x86/h264_cabac.c	2025-12-18 16:42:39.215412506 +0100
-+++ b/libavcodec/x86/h264_cabac.c	2026-02-11 11:07:51.443515627 +0100
-@@ -203,6 +203,171 @@
++++ b/libavcodec/x86/h264_cabac.c	2026-02-18 09:22:19.621714740 +0100
+@@ -203,6 +203,173 @@
      );
      return coeff_count;
  }
@@ -1622,12 +2153,11 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +#define decode_significance_skip decode_significance_skip_x86
 +static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
 +                                   uint8_t *significant_coeff_ctx_base,
-+                                   int *index, x86_reg last_off){
++                                   x86_reg last_off){
 +    void *end= significant_coeff_ctx_base + max_coeff - 1;
-+    int minusstart= -(intptr_t)significant_coeff_ctx_base;
-+    int minusindex= 4-(intptr_t)index;
 +    int bit;
-+    x86_reg coeff_count = 0;
++    x86_reg coeff_count;
++    x86_reg counter = 0;
 +
 +#ifdef BROKEN_RELOCATIONS
 +    void *tables;
@@ -1641,52 +2171,55 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +    __asm__ volatile(
 +        "3:                                     \n\t"
 +
++        /* Decode significance flag for current coefficient position */
 +        BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%3", "%w3",
 +                             "%5", "%q5", "%k0", "%b0",
-+                             "%c11(%6)", "%c12(%6)",
++                             "%c9(%6)", "%c10(%6)",
 +                             AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
 +                             AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
 +                             AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-+                             "%13")
++                             "%11")
 +
 +        "test $1, %4                            \n\t"
-+        " jz 4f                                 \n\t"
-+        "add  %10, %1                           \n\t"
-+        // "inc %0                                 \n\t"             // Increment coeff_count (We need this!)
++        " jnz 6f                                \n\t"
++
++        /* HOT PATH: not significant — fall through */
++        "4:                                     \n\t"
++        "add  $1, %1                            \n\t"
++        "cmp  %7, %1                            \n\t"
++        " jb 3b                                 \n\t"
++
++        /* End: implicit significant at last position */
++        "add  $1, %2                            \n\t"  /* counter++ (REGISTER!) */
++        "jmp 5f                                 \n\t"
++
++        /* COLD: significant coefficient */
++        "6:                                     \n\t"
++        "add  %8, %1                            \n\t"
 +
 +        BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%3", "%w3",
 +                             "%5", "%q5", "%k0", "%b0",
-+                             "%c11(%6)", "%c12(%6)",
++                             "%c9(%6)", "%c10(%6)",
 +                             AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
 +                             AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
 +                             AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-+                             "%13")
++                             "%11")
 +
-+        "sub  %10, %1                           \n\t"
-+        "mov  %2, %0                            \n\t"
-+        "movl %7, %%ecx                         \n\t"
-+        "add  %1, %%"FF_REG_c"                  \n\t"
-+        "movl %%ecx, (%0)                       \n\t"
++        "sub  %8, %1                            \n\t"
++        "add  $1, %2                            \n\t"  /* counter++ (REGISTER!) */
 +
 +        "test $1, %4                            \n\t"
 +        " jnz 5f                                \n\t"
 +
-+        "add"FF_OPSIZE"  $4, %2                 \n\t"
++        "jmp 4b                                 \n\t"
 +
-+        "4:                                     \n\t"
-+        "add  $1, %1                            \n\t"
-+        "cmp  %8, %1                            \n\t"
-+        " jb 3b                                 \n\t"
-+        "mov  %2, %0                            \n\t"
-+        "movl %7, %%ecx                         \n\t"
-+        "add  %1, %%"FF_REG_c"                  \n\t"
-+        "movl %%ecx, (%0)                       \n\t"
 +        "5:                                     \n\t"
-+        "add  %9, %k0                           \n\t"
-+        "shr $2, %k0                            \n\t"
-+        : "=&q"(coeff_count), "+r"(significant_coeff_ctx_base), "+m"(index),
++        "mov  %k2, %k0                           \n\t"
++ 
++        : "=&q"(coeff_count), "+r"(significant_coeff_ctx_base),
++          "+r"(counter),                                /* "+r" not "+m"! */
 +          "+&r"(c->low), "=&r"(bit), "+&r"(c->range)
-+        : "r"(c), "m"(minusstart), "m"(end), "m"(minusindex), "m"(last_off),
++        : "r"(c), "m"(end), "m"(last_off),
 +          "i"(offsetof(CABACContext, bytestream)),
 +          "i"(offsetof(CABACContext, bytestream_end))
 +          TABLES_ARG
@@ -1698,13 +2231,13 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +#define decode_significance_skip_8x8 decode_significance_8x8_skip_x86
 +static int decode_significance_8x8_skip_x86(CABACContext *c,
 +                                           uint8_t *significant_coeff_ctx_base,
-+                                           int *index, uint8_t *last_coeff_ctx_base,
++                                           uint8_t *last_coeff_ctx_base,
 +                                           const uint8_t *sig_off){
-+    int minusindex= 4-(intptr_t)index;
 +    int bit;
 +    x86_reg coeff_count;
 +    x86_reg last=0;
 +    x86_reg state;
++    x86_reg counter = 0;
 +
 +#ifdef BROKEN_RELOCATIONS
 +    void *tables;
@@ -1720,59 +2253,59 @@ diff -u -I '/tmp/ffconf\.' -x config.h -x ffbuild -x '*.pc' -x ffversion.h -r a/
 +        "mov %1, %6                             \n\t"
 +        "3:                                     \n\t"
 +
-+        "mov %10, %0                            \n\t"
++        /* Look up context offset for this 8x8 position from sig_off table */
++        "mov %9, %0                             \n\t"
 +        "movzb (%0, %6), %6                     \n\t"
-+        "add %9, %6                             \n\t"
++        "add %8, %6                             \n\t"
 +
++        /* Decode significance flag */
 +        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
 +                             "%5", "%q5", "%k0", "%b0",
-+                             "%c12(%7)", "%c13(%7)",
++                             "%c11(%7)", "%c12(%7)",
 +                             AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
 +                             AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
 +                             AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-+                             "%15")
++                             "%14")
 +
 +        "mov %1, %6                             \n\t"
 +        "test $1, %4                            \n\t"
 +        " jz 4f                                 \n\t"
 +
 +#ifdef BROKEN_RELOCATIONS
-+        "movzb %c14(%15, %q6), %6\n\t"
++        "movzb %c13(%14, %q6), %6\n\t"
 +#else
-+        "movzb "MANGLE(ff_h264_cabac_tables)"+%c14(%6), %6\n\t"
++        "movzb "MANGLE(ff_h264_cabac_tables)"+%c13(%6), %6\n\t"
 +#endif
-+        "add %11, %6                            \n\t"
++        "add %10, %6                            \n\t"
 +
 +        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
 +                             "%5", "%q5", "%k0", "%b0",
-+                             "%c12(%7)", "%c13(%7)",
++                             "%c11(%7)", "%c12(%7)",
 +                             AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
 +                             AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
 +                             AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-+                             "%15")
++                             "%14")
 +
-+        "mov %2, %0                             \n\t"
 +        "mov %1, %6                             \n\t"
-+        "mov %k6, (%0)                          \n\t"
++        "add $1, %2                             \n\t"
 +
 +        "test $1, %4                            \n\t"
 +        " jnz 5f                                \n\t"
-+
-+        "add"FF_OPSIZE"  $4, %2                 \n\t"
 +
 +        "4:                                     \n\t"
 +        "add $1, %6                             \n\t"
 +        "mov %6, %1                             \n\t"
 +        "cmp $63, %6                            \n\t"
 +        " jb 3b                                 \n\t"
-+        "mov %2, %0                             \n\t"
-+        "mov %k6, (%0)                          \n\t"
++
++        /* Fell through: position 63 implicitly significant */
++        "add $1, %2                             \n\t"
++
 +        "5:                                     \n\t"
-+        "addl %8, %k0                           \n\t"
-+        "shr $2, %k0                            \n\t"
-+        : "=&q"(coeff_count), "+"REG64(last), "+"REG64(index), "+&r"(c->low),
++        "mov %k2, %k0                           \n\t"
++        : "=&q"(coeff_count), "+"REG64(last), "+r"(counter), "+&r"(c->low),
 +          "=&r"(bit), "+&r"(c->range), "=&r"(state)
-+        : "r"(c), "m"(minusindex), "m"(significant_coeff_ctx_base),
++        : "r"(c), "m"(significant_coeff_ctx_base),
 +          REG64(sig_off), REG64(last_coeff_ctx_base),
 +          "i"(offsetof(CABACContext, bytestream)),
 +          "i"(offsetof(CABACContext, bytestream_end)),
