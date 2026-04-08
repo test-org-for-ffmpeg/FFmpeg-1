@@ -158,7 +158,22 @@ static HEVCFrame *alloc_frame(HEVCContext *s, HEVCLayerContext *l)
             }
         }
 
-        ret = ff_thread_get_buffer(s->avctx, frame->f, AV_GET_BUFFER_FLAG_REF);
+        if (s->motion_vectors_only) {
+            // Allocate minimal pixel buffers — MV extraction never writes pixels.
+            // CTB-aligned minimum (64x64) avoids alignment asserts.
+            int orig_w = s->avctx->width;
+            int orig_h = s->avctx->height;
+            s->avctx->width  = 64;
+            s->avctx->height = 64;
+            frame->f->width  = 64;
+            frame->f->height = 64;
+            frame->f->format = AV_PIX_FMT_YUV420P;
+            ret = ff_thread_get_buffer(s->avctx, frame->f, AV_GET_BUFFER_FLAG_REF);
+            s->avctx->width  = orig_w;
+            s->avctx->height = orig_h;
+        } else {
+            ret = ff_thread_get_buffer(s->avctx, frame->f, AV_GET_BUFFER_FLAG_REF);
+        }
         if (ret < 0)
             goto fail;
 

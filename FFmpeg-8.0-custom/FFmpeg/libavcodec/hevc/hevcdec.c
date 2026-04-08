@@ -1228,6 +1228,51 @@ static void hls_sao_param(HEVCLocalContext *lc, const HEVCLayerContext *l,
         }
     }
 
+    if (s->motion_vectors_only) {
+        /* MV-only fast path: parse CABAC bins to keep arithmetic decoder
+         * synchronized, but skip all storage and offset inference. */
+        int mv_sao_type_chroma = SAO_NOT_APPLIED;
+
+        for (c_idx = 0; c_idx < (sps->chroma_format_idc ? 3 : 1); c_idx++) {
+            if (!s->sh.slice_sample_adaptive_offset_flag[c_idx])
+                continue;
+
+            /* When merge flags are set, all params are copied from
+             * neighbors — no CABAC bins to consume. */
+            if (sao_merge_left_flag || sao_merge_up_flag)
+                continue;
+
+            int type_idx;
+            if (c_idx == 2) {
+                /* c_idx==2: type_idx and eo_class are copied from c_idx==1,
+                 * but offset_abs, offset_sign, and band_position are still
+                 * decoded from CABAC. */
+                type_idx = mv_sao_type_chroma;
+            } else {
+                type_idx = ff_hevc_sao_type_idx_decode(lc);
+                if (c_idx == 1)
+                    mv_sao_type_chroma = type_idx;
+            }
+
+            if (type_idx == SAO_NOT_APPLIED)
+                continue;
+
+            int offset_abs[4];
+            for (i = 0; i < 4; i++)
+                offset_abs[i] = ff_hevc_sao_offset_abs_decode(lc, sps->bit_depth);
+
+            if (type_idx == SAO_BAND) {
+                for (i = 0; i < 4; i++)
+                    if (offset_abs[i])
+                        ff_hevc_sao_offset_sign_decode(lc);
+                ff_hevc_sao_band_position_decode(lc);
+            } else if (c_idx != 2) {
+                /* eo_class is only decoded for c_idx 0 and 1;
+                 * c_idx==2 copies eo_class from c_idx==1. */
+                ff_hevc_sao_eo_class_decode(lc);
+            }
+        }
+    } else {
     for (c_idx = 0; c_idx < (sps->chroma_format_idc ? 3 : 1); c_idx++) {
         int log2_sao_offset_scale = c_idx == 0 ? pps->log2_sao_offset_scale_luma :
                                                  pps->log2_sao_offset_scale_chroma;
@@ -1276,6 +1321,7 @@ static void hls_sao_param(HEVCLocalContext *lc, const HEVCLayerContext *l,
             }
             sao->offset_val[c_idx][i + 1] *= 1 << log2_sao_offset_scale;
         }
+    }
     }
 }
 
@@ -2419,6 +2465,7 @@ static void intra_prediction_unit_default_value(HEVCLocalContext *lc,
 
     if (size_in_pus == 0)
         size_in_pus = 1;
+    // if (!s->motion_vectors_only)
     for (j = 0; j < size_in_pus; j++)
         memset(&l->tab_ipm[(y_pu + j) * min_pu_width + x_pu], INTRA_DC, size_in_pus);
     if (lc->cu.pred_mode == MODE_INTRA)
@@ -3504,13 +3551,7 @@ static int verify_md5(HEVCContext *s, AVFrame *frame)
 
 static av_always_inline int mvfield_match(const MvField *a, const MvField *b)
 {
-    return a->pred_flag   == b->pred_flag   &&
-           a->ref_idx[0]  == b->ref_idx[0]  &&
-           a->ref_idx[1]  == b->ref_idx[1]  &&
-           a->mv[0].x     == b->mv[0].x     &&
-           a->mv[0].y     == b->mv[0].y     &&
-           a->mv[1].x     == b->mv[1].x     &&
-           a->mv[1].y     == b->mv[1].y;
+    return !memcmp(a, b, offsetof(MvField, pred_flag) + 1);
 }
 
 int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)

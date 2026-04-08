@@ -32,7 +32,7 @@
 #include "avcodec.h"
 #include "mpegutils.h"
 
-static int add_mb(AVMotionVector *mb, uint32_t mb_type,
+static av_always_inline int add_mb(AVMotionVector *mb, uint32_t mb_type,
                   int dst_x, int dst_y,
                   int motion_x, int motion_y, int motion_scale,
                   int direction)

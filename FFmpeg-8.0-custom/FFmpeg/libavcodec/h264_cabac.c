@@ -2043,7 +2043,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
         uint8_t *ctx = coeff_abs_level1_ctx[node_ctx] + abs_level_m1_ctx_base; \
         /* preserve reverse order via index[], but no need to read scantable[] */ \
         --coeff_count; \
-        if (get_cabac(CC, ctx) == 0) { \
+        if (__builtin_expect(get_cabac(CC, ctx) == 0, 1)) { \
             /* abs_level == 1 */ \
             node_ctx = coeff_abs_level_transition[0][node_ctx]; \
             get_cabac_bypass(CC); \
@@ -2054,7 +2054,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
             node_ctx = coeff_abs_level_transition[1][node_ctx]; \
             while (coeff_abs < 15 && get_cabac(CC, ctx)) \
                 coeff_abs++; \
-            if (coeff_abs >= 15) { \
+            if (__builtin_expect(coeff_abs >= 15, 0)) { \
                 int j_loop = 0; \
                 while (get_cabac_bypass(CC) && j_loop < 23) \
                     j_loop++; \
@@ -2078,33 +2078,6 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
 #undef DECODE_SIGNIFICANCE_COUNT_ONLY
 }
 
-static av_noinline void decode_cabac_residual_dc_internal_skip(const H264Context *h,
-                                                          H264SliceContext *sl,
-                                                          int cat, int n,
-                                                          const uint8_t *scantable,
-                                                          int max_coeff)
-{
-    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 1, 0);
-}
-
-static av_noinline void decode_cabac_residual_dc_internal_422_skip(const H264Context *h,
-                                                              H264SliceContext *sl,
-                                                              int cat, int n,
-                                                              const uint8_t *scantable,
-                                                              int max_coeff)
-{
-    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 1, 1);
-}
-
-static av_noinline void decode_cabac_residual_nondc_internal_skip(const H264Context *h,
-                                                             H264SliceContext *sl,
-                                                             int cat, int n,
-                                                             const uint8_t *scantable,
-                                                             int max_coeff)
-{
-    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 0, 0);
-}
-
 av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h,
                                                       H264SliceContext *sl,
                                                       int16_t *block,
@@ -2117,7 +2090,7 @@ av_always_inline void decode_cabac_residual_dc_skip(const H264Context *h,
         sl->non_zero_count_cache[scan8[n]] = 0;
         return;
     }
-    decode_cabac_residual_dc_internal_skip(h, sl, cat, n, scantable, max_coeff);
+    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 1, 0);
 }
 
 av_always_inline void
@@ -2131,7 +2104,7 @@ decode_cabac_residual_dc_422_skip(const H264Context *h, H264SliceContext *sl,
         sl->non_zero_count_cache[scan8[n]] = 0;
         return;
     }
-    decode_cabac_residual_dc_internal_422_skip(h, sl, cat, n, scantable, max_coeff);
+    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 1, 1);
 }
 
 av_always_inline void decode_cabac_residual_nondc_skip(const H264Context *h,
@@ -2151,7 +2124,7 @@ av_always_inline void decode_cabac_residual_nondc_skip(const H264Context *h,
         }
         return;
     }
-    decode_cabac_residual_nondc_internal_skip(h, sl, cat, n, scantable, max_coeff);
+    decode_cabac_residual_internal_skip(h, sl, cat, n, scantable, max_coeff, 0, 0);
 }
 
 av_always_inline void 
@@ -2388,17 +2361,21 @@ decode_intra_mb:
             }
                 
         } else {
-            sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
-                                                                     sl->left_samples_available, sl->intra16x16_pred_mode, 0);
-            if (sl->intra16x16_pred_mode < 0) return -1;
+            if (!h->avctx->motion_vectors_only) {
+                sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
+                                                                         sl->left_samples_available, sl->intra16x16_pred_mode, 0);
+                if (sl->intra16x16_pred_mode < 0) return -1;
+            }
         }
         if(decode_chroma){
             h->chroma_pred_mode_table[mb_xy] =
             pred_mode                        = decode_cabac_mb_chroma_pre_mode(h, sl);
 
-            pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
-                                                     sl->left_samples_available, pred_mode, 1 );
-            if( pred_mode < 0 ) return -1;
+            if (!h->avctx->motion_vectors_only) {
+                pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
+                                                         sl->left_samples_available, pred_mode, 1 );
+                if( pred_mode < 0 ) return -1;
+            }
             sl->chroma_pred_mode = pred_mode;
         } else {
             sl->chroma_pred_mode = DC_128_PRED8x8;

@@ -997,20 +997,29 @@ decode_intra_mb:
                     sl->intra4x4_pred_mode_cache[scan8[i]] = mode;
             }
             write_back_intra_pred_mode(h, sl);
-            if (ff_h264_check_intra4x4_pred_mode(sl->intra4x4_pred_mode_cache, h->avctx,
-                                                 sl->top_samples_available, sl->left_samples_available) < 0)
-                return -1;
+            if (!h->avctx->motion_vectors_only) {
+                if (ff_h264_check_intra4x4_pred_mode(sl->intra4x4_pred_mode_cache, h->avctx,
+                                                     sl->top_samples_available, sl->left_samples_available) < 0)
+                    return -1;
+            }
         }else{
-            sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
-                                                                     sl->left_samples_available, sl->intra16x16_pred_mode, 0);
-            if (sl->intra16x16_pred_mode < 0)
-                return -1;
+            if (!h->avctx->motion_vectors_only) {
+                sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
+                                                                         sl->left_samples_available, sl->intra16x16_pred_mode, 0);
+                if (sl->intra16x16_pred_mode < 0)
+                    return -1;
+            }
         }
         if(decode_chroma){
-            pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
-                                                     sl->left_samples_available, get_ue_golomb_31(&sl->gb), 1);
-            if(pred_mode < 0)
-                return -1;
+            int chroma_mode = get_ue_golomb_31(&sl->gb);
+            if (!h->avctx->motion_vectors_only) {
+                pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
+                                                         sl->left_samples_available, chroma_mode, 1);
+                if(pred_mode < 0)
+                    return -1;
+            } else {
+                pred_mode = chroma_mode;
+            }
             sl->chroma_pred_mode = pred_mode;
         } else {
             sl->chroma_pred_mode = DC_128_PRED8x8;

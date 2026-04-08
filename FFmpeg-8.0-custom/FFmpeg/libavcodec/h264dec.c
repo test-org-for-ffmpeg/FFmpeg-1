@@ -427,6 +427,11 @@ static av_cold int h264_decode_init(AVCodecContext *avctx)
     if (h->enable_er < 0 && (avctx->active_thread_type & FF_THREAD_SLICE))
         h->enable_er = 0;
 
+    // Disable error resilience in MV-only mode - pixel buffers are minimal
+    // and error concealment would write out of bounds
+    if (avctx->motion_vectors_only)
+        h->enable_er = 0;
+
     if (h->enable_er && (avctx->active_thread_type & FF_THREAD_SLICE)) {
         av_log(avctx, AV_LOG_WARNING,
                "Error resilience with slice threads is enabled. It is unsafe and unsupported and may crash. "

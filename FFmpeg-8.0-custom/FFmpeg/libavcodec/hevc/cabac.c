@@ -1380,6 +1380,47 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
                 coeff_sign_flag = coeff_sign_flag_decode(lc, nb_significant_coeff_flag - 1) << (16 - (nb_significant_coeff_flag - 1));
             }
 
+            if (mv_only) {
+                /* MV-only fast path: parse CABAC bins for rice param tracking
+                 * and sign data hiding, but skip coord lookup, dequant, and
+                 * coefficient storage entirely. */
+                for (m = 0; m < n_end; m++) {
+                    if (m < 8) {
+                        trans_coeff_level = 1 + coeff_abs_level_greater1_flag[m];
+                        if (trans_coeff_level == ((m == first_greater1_coeff_idx) ? 3 : 2)) {
+                            int last_coeff_abs_level_remaining = coeff_abs_level_remaining_decode(lc, c_rice_param);
+                            trans_coeff_level += last_coeff_abs_level_remaining;
+                            if (trans_coeff_level > (3 << c_rice_param))
+                                c_rice_param = sps->persistent_rice_adaptation_enabled ? c_rice_param + 1 : FFMIN(c_rice_param + 1, 4);
+                            if (sps->persistent_rice_adaptation_enabled && !rice_init) {
+                                int c_rice_p_init = lc->stat_coeff[sb_type] / 4;
+                                if (last_coeff_abs_level_remaining >= (3 << c_rice_p_init))
+                                    lc->stat_coeff[sb_type]++;
+                                else if (2 * last_coeff_abs_level_remaining < (1 << c_rice_p_init))
+                                    if (lc->stat_coeff[sb_type] > 0)
+                                        lc->stat_coeff[sb_type]--;
+                                rice_init = 1;
+                            }
+                        }
+                    } else {
+                        int last_coeff_abs_level_remaining = coeff_abs_level_remaining_decode(lc, c_rice_param);
+                        trans_coeff_level = 1 + last_coeff_abs_level_remaining;
+                        if (trans_coeff_level > (3 << c_rice_param))
+                            c_rice_param = sps->persistent_rice_adaptation_enabled ? c_rice_param + 1 : FFMIN(c_rice_param + 1, 4);
+                        if (sps->persistent_rice_adaptation_enabled && !rice_init) {
+                            int c_rice_p_init = lc->stat_coeff[sb_type] / 4;
+                            if (last_coeff_abs_level_remaining >= (3 << c_rice_p_init))
+                                lc->stat_coeff[sb_type]++;
+                            else if (2 * last_coeff_abs_level_remaining < (1 << c_rice_p_init))
+                                if (lc->stat_coeff[sb_type] > 0)
+                                    lc->stat_coeff[sb_type]--;
+                            rice_init = 1;
+                        }
+                    }
+                    if (pps->sign_data_hiding_flag && sign_hidden)
+                        sum_abs += trans_coeff_level;
+                }
+            } else {
             for (m = 0; m < n_end; m++) {
                 n = significant_coeff_flag_idx[m];
                 GET_COORD(offset, n);
@@ -1417,15 +1458,20 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
                         rice_init = 1;
                     }
                 }
-
-                if (mv_only) {
-                    /* Skip sign application, dequant, and coefficient storage */
-                    if (pps->sign_data_hiding_flag && sign_hidden)
-                        sum_abs += trans_coeff_level;
-                    coeff_sign_flag <<= 1;
-                    continue;
-                }
-
+////
+//                 if (mv_only && !pps->sign_data_hiding_flag) {
+//                     coeff_sign_flag <<= 1;
+//                     continue;
+//                 }
+                
+//                 if (mv_only) {
+//                     /* Skip sign application, dequant, and coefficient storage */
+//                     if (pps->sign_data_hiding_flag && sign_hidden)
+//                         sum_abs += trans_coeff_level;
+//                     coeff_sign_flag <<= 1;
+//                     continue;
+//                 }
+// ////
                 if (pps->sign_data_hiding_flag && sign_hidden) {
                     sum_abs += trans_coeff_level;
                     if (n == first_nz_pos_in_cg && (sum_abs&1))
@@ -1458,6 +1504,7 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
                     }
                 }
                 coeffs[y_c * trafo_size + x_c] = trans_coeff_level;
+            }
             }
         }
     }
