@@ -54,4 +54,19 @@ typedef struct AVMotionVector {
     uint16_t motion_scale;
 } AVMotionVector;
 
+/**
+ * Compact motion vector, emitted when the decoder is run with
+ * motion_vectors_only=1. Stores only the two endpoints — source
+ * (reference-frame position) and destination (current-frame block
+ * center) — cutting per-MV memory from ~40 B to 12 B.
+ */
+typedef struct AVMotionVectorCompact {
+    /** Same semantics as AVMotionVector::source. */
+    int32_t source;
+    /** Absolute source position (reference frame). */
+    int16_t src_x, src_y;
+    /** Absolute destination position (current frame block center). */
+    int16_t dst_x, dst_y;
+} AVMotionVectorCompact;
+
 #endif /* AVUTIL_MOTION_VECTOR_H */

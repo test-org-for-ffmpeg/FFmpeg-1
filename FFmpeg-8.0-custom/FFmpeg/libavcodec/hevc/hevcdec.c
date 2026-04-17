@@ -3562,14 +3562,16 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
     const int min_pu_width  = sps->min_pu_width;
     const int min_pu_height = sps->min_pu_height;
     const MvField *tab_mvf  = frame->tab_mvf;
+    const int compact       = s->motion_vectors_only;
 
     const int max_pu_w = 255 / min_pu_size;
     const int max_pu_h = 255 / min_pu_size;
-    
+
     AVFrameSideData *sd;
     int num_mvs = 0;
     int alloc   = min_pu_width * min_pu_height * 2;
-    AVMotionVector *mvs = NULL;
+    AVMotionVector        *mvs_full    = NULL;
+    AVMotionVectorCompact *mvs_compact = NULL;
 
     if (!tab_mvf)
         return 0;
@@ -3578,8 +3580,11 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
     if (!visited)
         return AVERROR(ENOMEM);
 
-    mvs = av_malloc_array(alloc, sizeof(*mvs));
-    if (!mvs) {
+    if (compact)
+        mvs_compact = av_malloc_array(alloc, sizeof(*mvs_compact));
+    else
+        mvs_full    = av_malloc_array(alloc, sizeof(*mvs_full));
+    if (!mvs_full && !mvs_compact) {
         av_free(visited);
         return AVERROR(ENOMEM);
     }
@@ -3635,46 +3640,75 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
                     continue;
 
                 av_assert0(num_mvs < alloc);
-                AVMotionVector *out = &mvs[num_mvs++];
-                out->w        = (uint8_t)pixel_w;
-                out->h        = (uint8_t)pixel_h;
-                out->src_x    = pixel_x + pixel_w / 2;
-                out->src_y    = pixel_y + pixel_h / 2;
-                out->dst_x    = out->src_x + (mvf->mv[dir].x >> 2);
-                out->dst_y    = out->src_y + (mvf->mv[dir].y >> 2);
-                /* Raw quarter-pel MV components */
-                out->motion_x = mvf->mv[dir].x;
-                out->motion_y = mvf->mv[dir].y;
-                out->motion_scale = 4; /* HEVC uses quarter-pel precision */
-                out->flags    = 0;
 
-                /*
-                 * source: negative = L0 (past/backward), positive = L1 (future/forward)
-                 * Use the signed reference index convention matching H.264 export.
-                 */
-                out->source = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
-                                         :  (mvf->ref_idx[dir] + 1);
+                const int src_x = pixel_x + pixel_w / 2;
+                const int src_y = pixel_y + pixel_h / 2;
+
+                if (compact) {
+                    AVMotionVectorCompact *out = &mvs_compact[num_mvs++];
+                    out->src_x        = src_x;
+                    out->src_y        = src_y;
+                    out->dst_x        = src_x + (mvf->mv[dir].x >> 2);
+                    out->dst_y        = src_y + (mvf->mv[dir].y >> 2);
+                    out->source       = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
+                                                   :  (mvf->ref_idx[dir] + 1);
+                } else {
+                    const int dst_x = src_x + (mvf->mv[dir].x >> 2);
+                    const int dst_y = src_y + (mvf->mv[dir].y >> 2);
+                    AVMotionVector *out = &mvs_full[num_mvs++];
+                    out->w        = (uint8_t)pixel_w;
+                    out->h        = (uint8_t)pixel_h;
+                    out->src_x    = src_x;
+                    out->src_y    = src_y;
+                    out->dst_x    = dst_x;
+                    out->dst_y    = dst_y;
+                    /* Raw quarter-pel MV components */
+                    out->motion_x = mvf->mv[dir].x;
+                    out->motion_y = mvf->mv[dir].y;
+                    out->motion_scale = 4; /* HEVC uses quarter-pel precision */
+                    out->flags    = 0;
+
+                    /*
+                     * source: negative = L0 (past/backward), positive = L1 (future/forward)
+                     * Use the signed reference index convention matching H.264 export.
+                     */
+                    out->source = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
+                                             :  (mvf->ref_idx[dir] + 1);
+                }
             }
         }
     }
     av_free(visited);
 
     if (!num_mvs) {
-        av_free(mvs);
+        av_free(mvs_full);
+        av_free(mvs_compact);
         return 0;
     }
 
-    sd = av_frame_new_side_data(frame->f, AV_FRAME_DATA_MOTION_VECTORS,
-                                num_mvs * sizeof(AVMotionVector));
-    if (!sd) {
-        av_free(mvs);
-        return AVERROR(ENOMEM);
+    if (compact) {
+        sd = av_frame_new_side_data(frame->f, AV_FRAME_DATA_MOTION_VECTORS_COMPACT,
+                                    num_mvs * sizeof(AVMotionVectorCompact));
+        if (!sd) {
+            av_free(mvs_compact);
+            return AVERROR(ENOMEM);
+        }
+        memcpy(sd->data, mvs_compact, num_mvs * sizeof(AVMotionVectorCompact));
+        av_free(mvs_compact);
+    } else {
+        sd = av_frame_new_side_data(frame->f, AV_FRAME_DATA_MOTION_VECTORS,
+                                    num_mvs * sizeof(AVMotionVector));
+        if (!sd) {
+            av_free(mvs_full);
+            return AVERROR(ENOMEM);
+        }
+        memcpy(sd->data, mvs_full, num_mvs * sizeof(AVMotionVector));
+        av_free(mvs_full);
     }
-    memcpy(sd->data, mvs, num_mvs * sizeof(AVMotionVector));
-    av_free(mvs);
 
     av_log(s->avctx, AV_LOG_DEBUG,
-           "MV export: POC=%d, merged MVs=%d\n", s->poc, num_mvs);
+           "MV export: POC=%d, merged MVs=%d%s\n",
+           s->poc, num_mvs, compact ? " (compact)" : "");
 
     return 0;
 }

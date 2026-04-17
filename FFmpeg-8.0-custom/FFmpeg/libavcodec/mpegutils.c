@@ -51,6 +51,19 @@ static av_always_inline int add_mb(AVMotionVector *mb, uint32_t mb_type,
     return 1;
 }
 
+static av_always_inline int add_mb_compact(AVMotionVectorCompact *mb,
+                  int dst_x, int dst_y,
+                  int motion_x, int motion_y, int motion_scale,
+                  int direction)
+{
+    mb->src_x   = dst_x + motion_x / motion_scale;
+    mb->src_y   = dst_y + motion_y / motion_scale;
+    mb->dst_x   = dst_x;
+    mb->dst_y   = dst_y;
+    mb->source  = direction ? 1 : -1;
+    return 1;
+}
+
 void ff_draw_horiz_band(AVCodecContext *avctx,
                         const AVFrame *cur, const AVFrame *last,
                         int y, int h, int picture_structure,
@@ -302,7 +315,7 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
 
 void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
                           const uint32_t *mbtype_table,
-                          const int8_t *qscale_table, int16_t (*const motion_val[2])[2],
+                          int16_t (*const motion_val[2])[2],
                           int mb_width, int mb_height, int mb_stride, int quarter_sample)
 {
     const int is_h264 = avctx->codec_id == AV_CODEC_ID_H264;
@@ -316,14 +329,35 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
         const int mv_stride      = (mb_width << mv_sample_log2) + !is_h264;
         int mb_x, mb_y, mbcount = 0;
         const int max_mvs        = mb_width * mb_height * 2 * 4;
+        const int compact        = avctx->motion_vectors_only;
 
         // --- Optimization 1: allocate directly into side data, skip temp buffer + memcpy ---
-        AVFrameSideData *sd = av_frame_new_side_data(pict, AV_FRAME_DATA_MOTION_VECTORS,
-                                    max_mvs * sizeof(AVMotionVector));
-        if (!sd)
-            goto debug_section;
+        // Compact path uses AVMotionVectorCompact (8 B) instead of AVMotionVector (~40 B)
+        // when the decoder is in motion_vectors_only mode — the consumer has already
+        // opted out of pixel reconstruction, so the extra fields are dead weight.
+        const enum AVFrameSideDataType sd_type = compact
+            ? AV_FRAME_DATA_MOTION_VECTORS_COMPACT
+            : AV_FRAME_DATA_MOTION_VECTORS;
+        const size_t entry_size = compact
+            ? sizeof(AVMotionVectorCompact)
+            : sizeof(AVMotionVector);
 
-        AVMotionVector *mvs = (AVMotionVector *)sd->data;
+        AVFrameSideData *sd = av_frame_new_side_data(pict, sd_type,
+                                    max_mvs * entry_size);
+        if (!sd)
+            return;
+
+        AVMotionVector        *mvs_full    = compact ? NULL : (AVMotionVector *)sd->data;
+        AVMotionVectorCompact *mvs_compact = compact ? (AVMotionVectorCompact *)sd->data : NULL;
+
+#define ADD_MB(sx_, sy_, mx_, my_) do {                                              \
+    if (compact)                                                                     \
+        mbcount += add_mb_compact(mvs_compact + mbcount, (sx_), (sy_),               \
+                                  (mx_), (my_), scale, direction);                   \
+    else                                                                             \
+        mbcount += add_mb(mvs_full + mbcount, mb_type, (sx_), (sy_),                 \
+                          (mx_), (my_), scale, direction);                           \
+} while (0)
 
         for (mb_y = 0; mb_y < mb_height; mb_y++) {
             for (mb_x = 0; mb_x < mb_width; mb_x++) {
@@ -343,7 +377,7 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
                                       (mb_y * 2 + (i >> 1)) * mv_stride) << (mv_sample_log2 - 1);
                             int mx = motion_val[direction][xy][0];
                             int my = motion_val[direction][xy][1];
-                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
+                            ADD_MB(sx, sy, mx, my);
                         }
                     } else if (IS_16X8(mb_type)) {
                         for (i = 0; i < 2; i++) {
@@ -356,7 +390,7 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
                             if (IS_INTERLACED(mb_type))
                                 my *= 2;
 
-                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
+                            ADD_MB(sx, sy, mx, my);
                         }
                     } else if (IS_8X16(mb_type)) {
                         for (i = 0; i < 2; i++) {
@@ -369,7 +403,7 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
                             if (IS_INTERLACED(mb_type))
                                 my *= 2;
 
-                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
+                            ADD_MB(sx, sy, mx, my);
                         }
                     } else {
                           int sx = mb_x * 16 + 8;
@@ -377,78 +411,19 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
                           int xy = (mb_x + mb_y * mv_stride) << mv_sample_log2;
                           int mx = motion_val[direction][xy][0];
                           int my = motion_val[direction][xy][1];
-                          mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
+                          ADD_MB(sx, sy, mx, my);
                     }
                 }
             }
         }
+#undef ADD_MB
 
         if (mbcount) {
             av_log(avctx, AV_LOG_DEBUG, "Adding %d MVs info to frame %"PRId64"\n", mbcount, avctx->frame_num);
-            sd->size = mbcount * sizeof(AVMotionVector);
+            sd->size = mbcount * entry_size;
         } else {
-            av_frame_remove_side_data(pict, AV_FRAME_DATA_MOTION_VECTORS);
+            av_frame_remove_side_data(pict, sd_type);
         }
     }
 
-debug_section:
-    // --- Optimization 4: early exit skips debug section entirely in production ---
-    if (!(avctx->debug & (FF_DEBUG_QP | FF_DEBUG_MB_TYPE)))
-        return;
-
-    /* TODO: export all the following to make them accessible for users (and filters) */
-    if (avctx->hwaccel || !mbtype_table)
-        return;
-
-    if (avctx->debug & (FF_DEBUG_QP | FF_DEBUG_MB_TYPE)) {
-        int x,y;
-        AVBPrint buf;
-        int n;
-        int margin_left;
-        int x_step;
-
-        av_log(avctx, AV_LOG_DEBUG, "New frame, type: %c\n",
-               av_get_picture_type_char(pict->pict_type));
-
-        margin_left = 2;
-        n = mb_width << 4;
-        while ((n /= 10))
-            margin_left++;
-
-        av_bprint_init(&buf, 1, AV_BPRINT_SIZE_UNLIMITED);
-        av_bprint_chars(&buf, ' ', margin_left);
-
-        n = 0;
-        if (avctx->debug & FF_DEBUG_QP)
-            n += 2;
-        if (avctx->debug & FF_DEBUG_MB_TYPE)
-            n += 3;
-        x_step = (mb_width * 16 > 999) ? 8 : 4;
-        for (x = 0; x < mb_width; x += x_step)
-            av_bprintf(&buf, "%-*d", n * x_step, x << 4);
-
-        av_log(avctx, AV_LOG_DEBUG, "%s\n", buf.str);
-
-        for (y = 0; y < mb_height; y++) {
-            av_bprint_clear(&buf);
-            for (x = 0; x < mb_width; x++) {
-                if (x == 0)
-                    av_bprintf(&buf, "%*d ", margin_left - 1, y << 4);
-                if (avctx->debug & FF_DEBUG_QP) {
-                    av_bprintf(&buf, "%2d", qscale_table[x + y * mb_stride]);
-                }
-                if (avctx->debug & FF_DEBUG_MB_TYPE) {
-                    int mb_type = mbtype_table[x + y * mb_stride];
-
-                    av_bprintf(&buf, "%c%c%c",
-                           get_type_mv_char(mb_type, mb_type_mv_flags),
-                           get_segmentation_char(mb_type),
-                           get_interlacement_char(mb_type));
-                }
-            }
-
-            av_log(avctx, AV_LOG_DEBUG, "%s\n", buf.str);
-        }
-        av_bprint_finalize(&buf, NULL);
-    }
 }
