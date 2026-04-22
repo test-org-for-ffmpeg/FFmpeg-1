@@ -2465,7 +2465,7 @@ static void intra_prediction_unit_default_value(HEVCLocalContext *lc,
 
     if (size_in_pus == 0)
         size_in_pus = 1;
-    // if (!s->motion_vectors_only)
+    // if (!s->motion_vectors_only) // what to do with this??
     for (j = 0; j < size_in_pus; j++)
         memset(&l->tab_ipm[(y_pu + j) * min_pu_width + x_pu], INTRA_DC, size_in_pus);
     if (lc->cu.pred_mode == MODE_INTRA)
@@ -2500,7 +2500,7 @@ static int hls_coding_unit(HEVCLocalContext *lc, const HEVCContext *s,
         lc->pu.intra_pred_mode[x] = 1;
     if (pps->transquant_bypass_enable_flag) {
         lc->cu.cu_transquant_bypass_flag = ff_hevc_cu_transquant_bypass_flag_decode(lc);
-        if (lc->cu.cu_transquant_bypass_flag)
+        if (lc->cu.cu_transquant_bypass_flag && !s->motion_vectors_only)
             set_deblocking_bypass(l->is_pcm, sps, x0, y0, log2_cb_size);
     } else
         lc->cu.cu_transquant_bypass_flag = 0;
@@ -2554,7 +2554,7 @@ static int hls_coding_unit(HEVCLocalContext *lc, const HEVCContext *s,
             if (pcm_flag) {
                 intra_prediction_unit_default_value(lc, l, sps, x0, y0, log2_cb_size);
                 ret = hls_pcm_sample(lc, l, pps, x0, y0, log2_cb_size);
-                if (sps->pcm_loop_filter_disabled)
+                if (sps->pcm_loop_filter_disabled && !s->motion_vectors_only)
                     set_deblocking_bypass(l->is_pcm, sps, x0, y0, log2_cb_size);
 
                 if (ret < 0)
@@ -2645,10 +2645,12 @@ static int hls_coding_unit(HEVCLocalContext *lc, const HEVCContext *s,
     if (pps->cu_qp_delta_enabled_flag && lc->tu.is_cu_qp_delta_coded == 0)
         ff_hevc_set_qPy(lc, l, pps, x0, y0, log2_cb_size);
 
-    x = y_cb * min_cb_width + x_cb;
-    for (y = 0; y < length; y++) {
-        memset(&l->qp_y_tab[x], lc->qp_y, length);
-        x += min_cb_width;
+    if (!s->motion_vectors_only) {
+        x = y_cb * min_cb_width + x_cb;
+        for (y = 0; y < length; y++) {
+            memset(&l->qp_y_tab[x], lc->qp_y, length);
+            x += min_cb_width;
+        }
     }
 
     if(((x0 + (1<<log2_cb_size)) & qp_block_mask) == 0 &&

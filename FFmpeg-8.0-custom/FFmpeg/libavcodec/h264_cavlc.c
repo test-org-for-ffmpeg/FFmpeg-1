@@ -664,8 +664,7 @@ int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
 
 av_always_inline
 int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
-                              GetBitContext *gb, const uint8_t *scan,
-                              const uint8_t *scan8x8, int pixel_shift,
+                              GetBitContext *gb,
                               int mb_type, int cbp, int p)
 {
     int i4x4, i8x8;
@@ -673,7 +672,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
     if(IS_INTRA16x16(mb_type)){
         /* for intra16x16 the DC block has 16 coeffs and AC blocks may follow.
          * decode_residual_skip will update non_zero_count_cache appropriately. */
-        if (decode_residual_skip(h, sl, gb, NULL, LUMA_DC_BLOCK_INDEX + p, NULL, NULL, 16) < 0) {
+        if (decode_residual_skip(h, sl, gb, LUMA_DC_BLOCK_INDEX + p, 16) < 0) {
             return -1;
         }
 
@@ -683,7 +682,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
             for(i8x8=0; i8x8<4; i8x8++){
                 for(i4x4=0; i4x4<4; i4x4++){
                     const int index= i4x4 + 4*i8x8 + p*16;
-                    if( decode_residual_skip(h, sl, gb, NULL, index, NULL, NULL, 15) < 0 ){
+                    if( decode_residual_skip(h, sl, gb, index, 15) < 0 ){
                         return -1;
                     }
                 }
@@ -701,7 +700,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                 if(IS_8x8DCT(mb_type)){
                     for(i4x4=0; i4x4<4; i4x4++){
                         const int index= i4x4 + 4*i8x8 + p*16;
-                        if( decode_residual_skip(h, sl, gb, NULL,  index, NULL, NULL, 16) < 0 )
+                        if( decode_residual_skip(h, sl, gb,  index, 16) < 0 )
                             return -1;
                     }
                     /* update nnz like original: the non_zero_count_cache entries already updated */
@@ -711,7 +710,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
                 }else{
                     for(i4x4=0; i4x4<4; i4x4++){
                         const int index= i4x4 + 4*i8x8 + p*16;
-                        if( decode_residual_skip(h, sl, gb, NULL, index, NULL, NULL, 16) < 0 ){
+                        if( decode_residual_skip(h, sl, gb, index, 16) < 0 ){
                             return -1;
                         }
                         new_cbp |= sl->non_zero_count_cache[scan8[index]] << i8x8;
@@ -727,8 +726,7 @@ int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
 }
 
 int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
-                                GetBitContext *gb, int16_t *block, int n,
-                                const uint8_t *scantable, const uint32_t *qmul,
+                                GetBitContext *gb, int n,
                                 int max_coeff)
 {
     int zeros_left, coeff_token, total_coeff, i, trailing_ones, run_before;
@@ -869,7 +867,7 @@ int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
     return 0;
 }
 
-int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl, decode_cavlc_residual_func decode_cavlc_residual, decode_cavlc_luma_residual_func decode_cavlc_luma_residual)
+int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
 {
     int mb_xy;
     int partition_count;
@@ -959,7 +957,8 @@ decode_intra_mb:
         skip_bits_long(&sl->gb, mb_size);
 
         // In deblocking, the quantizer is 0
-        h->cur_pic.qscale_table[mb_xy] = 0;
+        if (!h->avctx->motion_vectors_only)
+            h->cur_pic.qscale_table[mb_xy] = 0;
         // All coeffs are present
         memset(h->non_zero_count[mb_xy], 16, 48);
 
@@ -1311,29 +1310,46 @@ decode_intra_mb:
             scan8x8 = sl->qscale ? h->zigzag_scan8x8_cavlc : h->zigzag_scan8x8_cavlc_q0;
             scan    = sl->qscale ? h->zigzag_scan : h->zigzag_scan_q0;
         }
-
-        if((ret = decode_cavlc_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 0)) < 0 ) {
-            return -1;
+        if (h->avctx->motion_vectors_only) {
+            if((ret = decode_luma_residual_skip(h, sl, gb, mb_type, cbp, 0)) < 0 )
+                return -1;
+        } else {
+            if((ret = decode_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 0)) < 0 )
+                return -1;
         }
         h->cbp_table[mb_xy] |= ret << 12;
         if (CHROMA444(h)) {
-            if (decode_cavlc_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 1) < 0 ) {
-                return -1;
-            }
-            if (decode_cavlc_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 2) < 0 ) {
-                return -1;
+            if (h->avctx->motion_vectors_only) {
+                if((ret = decode_luma_residual_skip(h, sl, gb, mb_type, cbp, 1)) < 0 )
+                    return -1;
+
+                if((ret = decode_luma_residual_skip(h, sl, gb, mb_type, cbp, 2)) < 0 )
+                    return -1;
+            } else {
+                if((ret = decode_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 1)) < 0 )
+                    return -1;
+
+                if((ret = decode_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 2)) < 0 )
+                    return -1;
             }
         } else {
             const int num_c8x8 = h->ps.sps->chroma_format_idc;
 
             if(cbp&0x30){
-                for(chroma_idx=0; chroma_idx<2; chroma_idx++)
-                    if (decode_cavlc_residual(h, sl, gb, sl->mb + ((256 + 16*16*chroma_idx) << pixel_shift),
-                                             CHROMA_DC_BLOCK_INDEX + chroma_idx,
-                                             CHROMA422(h) ? ff_h264_chroma422_dc_scan : ff_h264_chroma_dc_scan,
-                                             NULL, 4 * num_c8x8) < 0) {
-                        return -1;
+                for(chroma_idx=0; chroma_idx<2; chroma_idx++) {
+                    if (h->avctx->motion_vectors_only) {
+                        if (decode_residual_skip(h, sl, gb,
+                                                CHROMA_DC_BLOCK_INDEX + chroma_idx,
+                                                4 * num_c8x8) < 0)
+                            return -1;
+                    } else {
+                        if (decode_residual(h, sl, gb, sl->mb + ((256 + 16*16*chroma_idx) << pixel_shift),
+                                                CHROMA_DC_BLOCK_INDEX + chroma_idx,
+                                                CHROMA422(h) ? ff_h264_chroma422_dc_scan : ff_h264_chroma_dc_scan,
+                                                NULL, 4 * num_c8x8) < 0)
+                            return -1;
                     }
+                }
             }
 
             if(cbp&0x20){
@@ -1345,8 +1361,14 @@ decode_intra_mb:
                     for (i8x8 = 0; i8x8<num_c8x8; i8x8++) {
                         for (i4x4 = 0; i4x4 < 4; i4x4++) {
                             const int index = 16 + 16*chroma_idx + 8*i8x8 + i4x4;
-                            if (decode_cavlc_residual(h, sl, gb, mb, index, scan + 1, qmul, 15) < 0)
-                                return -1;
+
+                            if (h->avctx->motion_vectors_only) {
+                                if (decode_residual_skip(h, sl, gb, index, 15) < 0)
+                                    return -1;
+                            } else {
+                                if (decode_residual(h, sl, gb, mb, index, scan + 1, qmul, 15) < 0)
+                                    return -1;
+                            }
                             mb += 16 << pixel_shift;
                         }
                     }
@@ -1361,7 +1383,8 @@ decode_intra_mb:
         fill_rectangle(&sl->non_zero_count_cache[scan8[16]], 4, 4, 8, 0, 1);
         fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
     }
-    h->cur_pic.qscale_table[mb_xy] = sl->qscale;
+    if (!h->avctx->motion_vectors_only)
+        h->cur_pic.qscale_table[mb_xy] = sl->qscale;
     write_back_non_zero_count(h, sl);
 
     return 0;

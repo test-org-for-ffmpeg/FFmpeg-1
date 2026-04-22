@@ -1103,14 +1103,14 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
                 dc_scale = sl->sl_dc[log2_trafo_size - 4][matrix_id];
         }
     } else if (mv_only) {
-        /* In MV-only mode, we still need to parse transform_skip_flag
-         * if it's in the bitstream (CABAC sync) */
+        /* MV-only: only transform_skip_flag needs parsing for CABAC sync;
+         * shift/add/scale/scale_m/dc_scale/qp are never consumed (we return
+         * before dequant at the `if (mv_only) return;` below). */
         if (!lc->cu.cu_transquant_bypass_flag &&
             pps->transform_skip_enabled_flag &&
             log2_trafo_size <= pps->log2_max_transform_skip_block_size) {
             transform_skip_flag = hevc_transform_skip_flag_decode(lc, c_idx);
         }
-        shift = add = scale = scale_m = dc_scale = qp = 0;
     } else {
         shift        = 0;
         add          = 0;
@@ -1458,20 +1458,6 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
                         rice_init = 1;
                     }
                 }
-////
-//                 if (mv_only && !pps->sign_data_hiding_flag) {
-//                     coeff_sign_flag <<= 1;
-//                     continue;
-//                 }
-                
-//                 if (mv_only) {
-//                     /* Skip sign application, dequant, and coefficient storage */
-//                     if (pps->sign_data_hiding_flag && sign_hidden)
-//                         sum_abs += trans_coeff_level;
-//                     coeff_sign_flag <<= 1;
-//                     continue;
-//                 }
-// ////
                 if (pps->sign_data_hiding_flag && sign_hidden) {
                     sum_abs += trans_coeff_level;
                     if (n == first_nz_pos_in_cg && (sum_abs&1))

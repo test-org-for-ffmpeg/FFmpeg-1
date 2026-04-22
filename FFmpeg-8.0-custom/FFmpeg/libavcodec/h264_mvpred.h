@@ -959,7 +959,8 @@ static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
 
     write_back_motion(h, sl, mb_type);
     h->cur_pic.mb_type[mb_xy]      = mb_type;
-    h->cur_pic.qscale_table[mb_xy] = sl->qscale;
+    if (!h->avctx->motion_vectors_only)
+        h->cur_pic.qscale_table[mb_xy] = sl->qscale;
     h->slice_table[mb_xy]          = sl->slice_num;
     sl->prev_mb_skipped            = 1;
 }

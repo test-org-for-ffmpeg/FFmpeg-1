@@ -2657,18 +2657,6 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
         ff_h264_init_cabac_states(h, sl);
 
-        cabac_luma_residual_func decode_luma_residual = decode_cabac_luma_residual;
-        cabac_residual_dc_func decode_residual_dc = decode_cabac_residual_dc;
-        cabac_residual_dc_func decode_residual_dc_422 = decode_cabac_residual_dc_422;
-        cabac_residual_nondc_func decode_residual_nondc = decode_cabac_residual_nondc;
-
-        if (h->avctx->motion_vectors_only) {
-            decode_luma_residual = decode_cabac_luma_residual_skip;
-            decode_residual_dc = decode_cabac_residual_dc_skip;
-            decode_residual_nondc = decode_cabac_residual_nondc_skip;
-            decode_residual_dc_422 = decode_cabac_residual_dc_422_skip;
-        }
-
         for (;;) {
             int ret, eos;
             if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
@@ -2679,7 +2667,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 return AVERROR_INVALIDDATA;
             }
 
-            ret = ff_h264_decode_mb_cabac(h, sl, decode_luma_residual, decode_residual_dc, decode_residual_dc_422, decode_residual_nondc);
+            ret = ff_h264_decode_mb_cabac(h, sl);
 
             // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
@@ -2690,8 +2678,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
 
-                ret = ff_h264_decode_mb_cabac(h, sl, decode_luma_residual, decode_residual_dc, decode_residual_dc_422, decode_residual_nondc);
-
+                ret = ff_h264_decode_mb_cabac(h, sl);
                 // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
                     if (!h->avctx->motion_vectors_only)
@@ -2749,14 +2736,6 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
         }
     } else {
-        decode_cavlc_residual_func decode_cavlc_residual = decode_residual;
-        decode_cavlc_luma_residual_func decode_cavlc_luma_residual = decode_luma_residual;
-        
-        if(h->avctx->motion_vectors_only) {
-            decode_cavlc_residual = decode_residual_skip;
-            decode_cavlc_luma_residual = decode_luma_residual_skip;
-        }
-
         for (;;) {
             int ret;
 
@@ -2768,7 +2747,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 return AVERROR_INVALIDDATA;
             }
 
-            ret = ff_h264_decode_mb_cavlc(h, sl, decode_cavlc_residual, decode_cavlc_luma_residual);
+            ret = ff_h264_decode_mb_cavlc(h, sl);
 
             // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
@@ -2778,7 +2757,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
-                ret = ff_h264_decode_mb_cavlc(h, sl, decode_cavlc_residual, decode_cavlc_luma_residual);
+                ret = ff_h264_decode_mb_cavlc(h, sl);
 
                 // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)

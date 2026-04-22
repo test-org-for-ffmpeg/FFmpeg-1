@@ -425,5 +425,4 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
             av_frame_remove_side_data(pict, sd_type);
         }
     }
-
 }
