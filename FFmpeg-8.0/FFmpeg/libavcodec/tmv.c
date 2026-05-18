@@ -47,7 +47,6 @@ static int tmv_decode_frame(AVCodecContext *avctx, AVFrame *frame,
     unsigned x, y, fg, bg, c;
     int ret;
 
-
     if (avpkt->size < 2*char_rows*char_cols) {
         av_log(avctx, AV_LOG_ERROR,
                "Input buffer too small, truncated sample?\n");
