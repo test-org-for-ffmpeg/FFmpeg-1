@@ -260,6 +260,7 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
     if (avctx->hwaccel || !mbtype_table)
         return;
 
+
     if (avctx->debug & (FF_DEBUG_QP | FF_DEBUG_MB_TYPE)) {
         int x,y;
         AVBPrint buf;
