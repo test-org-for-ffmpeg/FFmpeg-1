@@ -329,13 +329,10 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
         const int mv_sample_log2 = is_h264 ? 2 : 1;
         const int mv_stride      = (mb_width << mv_sample_log2) + !is_h264;
         int mb_x, mb_y, mbcount = 0;
-        const int max_mvs        = mb_width * mb_height * 2 * 4;
         const int compact        = avctx->motion_vectors_only;
 
-        // --- Optimization 1: allocate directly into side data, skip temp buffer + memcpy ---
         // Compact path uses AVMotionVectorCompact (8 B) instead of AVMotionVector (~40 B)
-        // when the decoder is in motion_vectors_only mode — the consumer has already
-        // opted out of pixel reconstruction, so the extra fields are dead weight.
+        // when the decoder is in motion_vectors_only mode.
         const enum AVFrameSideDataType sd_type = compact
             ? AV_FRAME_DATA_MOTION_VECTORS_COMPACT
             : AV_FRAME_DATA_MOTION_VECTORS;
@@ -343,13 +340,17 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
             ? sizeof(AVMotionVectorCompact)
             : sizeof(AVMotionVector);
 
-        AVFrameSideData *sd = av_frame_new_side_data(pict, sd_type,
-                                    max_mvs * entry_size);
-        if (!sd)
+        // Worst-case buffer: each MB can contribute up to 2 dirs * 4 sub-partitions.
+        // A two-pass count-then-allocate approach is unsafe with frame threading because
+        // another worker thread can write to mbtype_table between the two passes, making
+        // mbcount exceed the counted total and overflowing the allocated buffer.
+        const int max_mvs = mb_width * mb_height * 2 * 4;
+        void *tmp = av_malloc_array(max_mvs, entry_size);
+        if (!tmp)
             return;
 
-        AVMotionVector        *mvs_full    = compact ? NULL : (AVMotionVector *)sd->data;
-        AVMotionVectorCompact *mvs_compact = compact ? (AVMotionVectorCompact *)sd->data : NULL;
+        AVMotionVector        *mvs_full    = compact ? NULL : (AVMotionVector *)tmp;
+        AVMotionVectorCompact *mvs_compact = compact ? (AVMotionVectorCompact *)tmp : NULL;
 
 #define ADD_MB(sx_, sy_, mx_, my_) do {                                              \
     if (compact)                                                                     \
@@ -421,9 +422,10 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
 
         if (mbcount) {
             av_log(avctx, AV_LOG_DEBUG, "Adding %d MVs info to frame %"PRId64"\n", mbcount, avctx->frame_num);
-            sd->size = mbcount * entry_size;
-        } else {
-            av_frame_remove_side_data(pict, sd_type);
+            AVFrameSideData *sd = av_frame_new_side_data(pict, sd_type, mbcount * entry_size);
+            if (sd)
+                memcpy(sd->data, tmp, mbcount * entry_size);
         }
+        av_freep(&tmp);
     }
 }

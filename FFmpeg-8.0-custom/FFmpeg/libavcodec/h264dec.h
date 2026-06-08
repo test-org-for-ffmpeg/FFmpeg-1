@@ -586,46 +586,7 @@ extern const uint16_t ff_h264_mb_sizes[4];
 
 
 /**
- * CABAC residual decoding functions - normal variants
- */
-void decode_cabac_residual_dc(const H264Context *h, H264SliceContext *sl,
-                                       int16_t *block, int cat, int n,
-                                       const uint8_t *scantable, int max_coeff);
-
-void decode_cabac_residual_dc_422(const H264Context *h, H264SliceContext *sl,
-                                           int16_t *block, int cat, int n,
-                                           const uint8_t *scantable, int max_coeff);
-
-void decode_cabac_residual_nondc(const H264Context *h, H264SliceContext *sl,
-                                          int16_t *block, int cat, int n,
-                                          const uint8_t *scantable, const uint32_t *qmul,
-                                          int max_coeff);
-
-void decode_cabac_luma_residual(const H264Context *h, H264SliceContext *sl,
-                                         const uint8_t *scan, const uint8_t *scan8x8,
-                                         int pixel_shift, int mb_type, int cbp, int p);
-
-/**
- * CABAC residual decoding functions - skip variants for motion_vectors_only mode
- */
-void decode_cabac_residual_dc_skip(const H264Context *h, H264SliceContext *sl,
-                                            int cat, int n,
-                                            const uint8_t *scantable, int max_coeff);
-
-void decode_cabac_residual_dc_422_skip(const H264Context *h, H264SliceContext *sl,
-                                                int cat, int n,
-                                                const uint8_t *scantable, int max_coeff);
-
-void decode_cabac_residual_nondc_skip(const H264Context *h, H264SliceContext *sl,
-                                               int cat, int n,
-                                               const uint8_t *scantable, int max_coeff);
-
-void decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
-                                              const uint8_t *scan, const uint8_t *scan8x8,
-                                              int mb_type, int cbp, int p);
-
-/**
- * CAVCL residual decoding functions - normal variants 
+ * CAVCL residual decoding functions - normal variants
  */
 int decode_residual(const H264Context *h, H264SliceContext *sl,
                            GetBitContext *gb, int16_t *block, int n,

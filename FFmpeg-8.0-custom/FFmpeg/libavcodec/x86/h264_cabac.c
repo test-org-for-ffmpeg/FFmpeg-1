@@ -205,7 +205,7 @@ static int decode_significance_8x8_x86(CABACContext *c,
 }
 
 #define decode_significance_skip decode_significance_skip_x86
-static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
+static av_always_inline int decode_significance_skip_x86(CABACContext *c, int max_coeff,
                                    uint8_t *significant_coeff_ctx_base,
                                    x86_reg last_off){
     void *end= significant_coeff_ctx_base + max_coeff - 1;
@@ -259,12 +259,12 @@ static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
                              "%11")
 
-        "sub  %8, %1                            \n\t"
         "add  $1, %2                            \n\t"  /* counter++ (REGISTER!) */
 
         "test $1, %4                            \n\t"
-        " jnz 5f                                \n\t"
+        " jnz 5f                                \n\t"  /* exit: %1 dead, no restore */
 
+        "sub  %8, %1                            \n\t"  /* continue: restore base */
         "jmp 4b                                 \n\t"
 
         "5:                                     \n\t"
@@ -273,7 +273,7 @@ static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
         : "=&q"(coeff_count), "+r"(significant_coeff_ctx_base),
           "+r"(counter),                                /* "+r" not "+m"! */
           "+&r"(c->low), "=&r"(bit), "+&r"(c->range)
-        : "r"(c), "m"(end), "m"(last_off),
+        : "r"(c), "r"(end), "r"(last_off),
           "i"(offsetof(CABACContext, bytestream)),
           "i"(offsetof(CABACContext, bytestream_end))
           TABLES_ARG
@@ -283,7 +283,7 @@ static int decode_significance_skip_x86(CABACContext *c, int max_coeff,
 }
 
 #define decode_significance_skip_8x8 decode_significance_8x8_skip_x86
-static int decode_significance_8x8_skip_x86(CABACContext *c,
+static av_always_inline int decode_significance_8x8_skip_x86(CABACContext *c,
                                            uint8_t *significant_coeff_ctx_base,
                                            uint8_t *last_coeff_ctx_base,
                                            const uint8_t *sig_off){
@@ -340,11 +340,12 @@ static int decode_significance_8x8_skip_x86(CABACContext *c,
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
                              "%14")
 
-        "mov %1, %6                             \n\t"
         "add $1, %2                             \n\t"
 
         "test $1, %4                            \n\t"
-        " jnz 5f                                \n\t"
+        " jnz 5f                                \n\t"  /* exit: %6 dead, no restore */
+
+        "mov %1, %6                             \n\t"  /* continue: restore state */
 
         "4:                                     \n\t"
         "add $1, %6                             \n\t"
@@ -371,5 +372,52 @@ static int decode_significance_8x8_skip_x86(CABACContext *c,
 }
 
 #endif /* HAVE_7REGS && BROKEN_COMPILER */
+
+#if !BROKEN_COMPILER
+/* Same body as get_cabac_bypass_x86 minus the final "inc %edx" — drops the
+ * 0/1 return-value materialization. Used by SKIP_BLOCK for sign bits and
+ * escape-suffix bypass bits where the value is decoded purely to advance
+ * CABAC state, never read. Saves one µop per call (~1 cycle on Intel).
+ *
+ * The state update (low, range, bytestream refill) is identical to the stock
+ * primitive; only the value-return path is dropped. */
+#define consume_cabac_bypass consume_cabac_bypass_x86
+static av_always_inline void consume_cabac_bypass_x86(CABACContext *c)
+{
+    x86_reg tmp;
+    __asm__ volatile(
+        "movl        %c5(%1), %k0       \n\t"
+        "movl        %c2(%1), %%eax     \n\t"
+        "shl             $17, %k0       \n\t"
+        "add           %%eax, %%eax     \n\t"
+        "sub             %k0, %%eax     \n\t"
+        "cdq                            \n\t"
+        "and           %%edx, %k0       \n\t"
+        "add             %k0, %%eax     \n\t"
+        /* No "inc %edx" — return value is discarded by caller. */
+        "test           %%ax, %%ax      \n\t"
+        "jnz              1f            \n\t"
+        "mov         %c3(%1), %0        \n\t"
+        "subl        $0xFFFF, %%eax     \n\t"
+        "movzwl         (%0), %%ecx     \n\t"
+        "bswap         %%ecx            \n\t"
+        "shrl            $15, %%ecx     \n\t"
+        "addl          %%ecx, %%eax     \n\t"
+        "cmp         %c4(%1), %0        \n\t"
+        "jge              1f            \n\t"
+        "add"FF_OPSIZE"   $2, %c3(%1)   \n\t"
+        "1:                             \n\t"
+        "movl          %%eax, %c2(%1)   \n\t"
+
+        : "=&r"(tmp)
+        : "r"(c),
+          "i"(offsetof(CABACContext, low)),
+          "i"(offsetof(CABACContext, bytestream)),
+          "i"(offsetof(CABACContext, bytestream_end)),
+          "i"(offsetof(CABACContext, range))
+        : "%eax", "%ecx", "%edx", "memory"
+    );
+}
+#endif /* !BROKEN_COMPILER */
 
 #endif /* HAVE_INLINE_ASM */
