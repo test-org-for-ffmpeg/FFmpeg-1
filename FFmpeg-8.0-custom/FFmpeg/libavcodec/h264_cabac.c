@@ -1677,7 +1677,7 @@ static int decode_cabac_mb_mvd_skip(H264SliceContext *sl, int ctxbase, int amvd,
         mvd++;
     }
 
-    if (__builtin_expect(mvd >= 9, 0)) {
+    if (mvd >= 9) {
         int k = 3;
         while (get_cabac_bypass(&sl->cabac)) {
             mvd += 1 << k;
