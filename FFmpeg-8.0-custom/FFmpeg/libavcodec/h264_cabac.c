@@ -2187,7 +2187,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
     do { \
         uint8_t *ctx = coeff_abs_level1_ctx[node_ctx] + abs_level_m1_ctx_base; \
         --coeff_count; \
-        if (__builtin_expect(get_cabac(CC, ctx) == 0, 1)) { \
+        if (get_cabac(CC, ctx) == 0) { \
             /* abs_level == 1: just consume the sign bit. */ \
             node_ctx = coeff_abs_level_transition[0][node_ctx]; \
             consume_cabac_bypass(CC); \
@@ -2198,7 +2198,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
             node_ctx = coeff_abs_level_transition[1][node_ctx]; \
             while (coeff_abs < 15 && get_cabac(CC, ctx)) \
                 coeff_abs++; \
-            if (__builtin_expect(coeff_abs >= 15, 0)) { \
+            if (coeff_abs >= 15) { \
                 int j_loop = 0; \
                 /* Escape prefix: needs the return value as a loop condition. */ \
                 while (get_cabac_bypass(CC) && j_loop < 23) \
