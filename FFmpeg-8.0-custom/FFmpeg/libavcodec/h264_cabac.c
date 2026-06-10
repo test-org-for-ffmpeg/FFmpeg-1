@@ -2143,6 +2143,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
             coeff_count++;\
         }
         const uint8_t *sig_off = significant_coeff_flag_offset_8x8[MB_FIELD(sl)];
+#ifdef decode_significance_skip
         coeff_count = decode_significance_skip_8x8(CC, significant_coeff_ctx_base,
                                                  last_coeff_ctx_base, sig_off);
     } else {
@@ -2152,6 +2153,15 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
             coeff_count = decode_significance_skip(CC, max_coeff, significant_coeff_ctx_base,
                                                  last_coeff_ctx_base-significant_coeff_ctx_base);
         }
+#else
+        DECODE_SIGNIFICANCE_COUNT_ONLY( 63, sig_off[last], ff_h264_last_coeff_flag_offset_8x8[last] );
+    } else {
+        if (is_dc && chroma422) { // dc 422
+            DECODE_SIGNIFICANCE_COUNT_ONLY(7, sig_coeff_offset_dc[last], sig_coeff_offset_dc[last]);
+        } else {
+            DECODE_SIGNIFICANCE_COUNT_ONLY(max_coeff - 1, last, last);
+        }
+#endif
     }
     av_assert2(coeff_count > 0);
 
