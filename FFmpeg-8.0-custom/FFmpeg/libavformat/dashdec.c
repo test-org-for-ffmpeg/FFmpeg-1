@@ -109,6 +109,7 @@ struct representation {
     int64_t cur_seg_offset;
     int64_t cur_seg_size;
     struct fragment *cur_seg;
+    int n_open_failures;            /* consecutive open_input failures since last good read */
 
     /* Currently active Media Initialization Section */
     struct fragment *init_section;
@@ -153,6 +154,7 @@ typedef struct DASHContext {
     char *allowed_extensions;
     AVDictionary *avio_opts;
     int max_url_size;
+    int max_reload;
     char *cenc_decryption_key;
 
     /* Flags for init section*/
@@ -446,7 +448,7 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
     av_freep(pb);
     av_dict_copy(&tmp, *opts, 0);
     av_dict_copy(&tmp, opts2, 0);
-    ret = ffio_open_whitelist(pb, url, AVIO_FLAG_READ, c->interrupt_callback, &tmp, s->protocol_whitelist, s->protocol_blacklist);
+    ret = s->io_open(s, pb, url, AVIO_FLAG_READ, &tmp);
     if (ret >= 0) {
         // update cookies on http response with setcookies.
         char *new_cookies = NULL;
@@ -1242,7 +1244,7 @@ static int parse_manifest(AVFormatContext *s, const char *url, AVIOContext *in)
         close_in = 1;
 
         av_dict_copy(&opts, c->avio_opts, 0);
-        ret = ffio_open_whitelist(&in, url, AVIO_FLAG_READ, c->interrupt_callback, &opts, s->protocol_whitelist, s->protocol_blacklist);
+        ret = s->io_open(s, &in, url, AVIO_FLAG_READ, &opts);
         av_dict_free(&opts);
         if (ret < 0)
             return ret;
@@ -1385,7 +1387,7 @@ cleanup:
 
     av_bprint_finalize(&buf, NULL);
     if (close_in) {
-        avio_close(in);
+        ff_format_io_close(s, &in);
     }
     return ret;
 }
@@ -1606,6 +1608,7 @@ static struct fragment *get_current_fragment(struct representation *pls)
     struct fragment *seg = NULL;
     struct fragment *seg_ptr = NULL;
     DASHContext *c = pls->parent->priv_data;
+    int reload_count = 0;
 
     while (( !ff_check_interrupt(c->interrupt_callback)&& pls->n_fragments > 0)) {
         if (pls->cur_seq_no < pls->n_fragments) {
@@ -1623,6 +1626,12 @@ static struct fragment *get_current_fragment(struct representation *pls)
             seg->url_offset = seg_ptr->url_offset;
             return seg;
         } else if (c->is_live) {
+            if (reload_count++ >= c->max_reload) {
+                av_log(pls->parent, AV_LOG_ERROR,
+                       "Reached max manifest reloads (%d) at seq %"PRId64"\n",
+                       c->max_reload, pls->cur_seq_no);
+                return NULL;
+            }
             refresh_manifest(pls->parent);
         } else {
             break;
@@ -1813,9 +1822,17 @@ restart:
                 goto end;
             }
             av_log(v->parent, AV_LOG_WARNING, "Failed to open fragment of playlist\n");
+            if (++v->n_open_failures > c->max_reload) {
+                av_log(v->parent, AV_LOG_ERROR,
+                       "Reached max consecutive fragment open failures (%d), giving up\n",
+                       c->max_reload);
+                ret = AVERROR_EOF;
+                goto end;
+            }
             v->cur_seq_no++;
             goto restart;
         }
+        v->n_open_failures = 0;
     }
 
     if (v->init_sec_buf_read_offset < v->init_sec_data_len) {
@@ -2069,6 +2086,8 @@ static int dash_read_header(AVFormatContext *s)
 
         if (ret)
             return ret;
+        if (rep->ctx->nb_streams == 0)
+            return AVERROR_PATCHWELCOME;
         rep->stream_index = stream_index;
         ++stream_index;
     }
@@ -2087,6 +2106,8 @@ static int dash_read_header(AVFormatContext *s)
 
         if (ret)
             return ret;
+        if (rep->ctx->nb_streams == 0)
+            return AVERROR_PATCHWELCOME;
         rep->stream_index = stream_index;
         ++stream_index;
     }
@@ -2105,6 +2126,8 @@ static int dash_read_header(AVFormatContext *s)
 
         if (ret)
             return ret;
+        if (rep->ctx->nb_streams == 0)
+            return AVERROR_PATCHWELCOME;
         rep->stream_index = stream_index;
         ++stream_index;
     }
@@ -2363,6 +2386,8 @@ static const AVOption dash_options[] = {
         {.str = "aac,m4a,m4s,m4v,mov,mp4,webm,ts"},
         INT_MIN, INT_MAX, FLAGS},
     { "cenc_decryption_key", "Media decryption key (hex)", OFFSET(cenc_decryption_key), AV_OPT_TYPE_STRING, {.str = NULL}, INT_MIN, INT_MAX, .flags = FLAGS },
+    { "max_reload", "Maximum number of manifest reloads in get_current_fragment() before giving up",
+        OFFSET(max_reload), AV_OPT_TYPE_INT, { .i64 = 100 }, 0, INT_MAX, FLAGS },
     {NULL}
 };
 
