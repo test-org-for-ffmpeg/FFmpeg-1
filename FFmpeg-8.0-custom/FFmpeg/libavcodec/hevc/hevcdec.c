@@ -3638,25 +3638,29 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
                 continue;
 
             for (int dir = 0; dir < 2; dir++) {
+                if (dir && s->avctx->mv_l0_only)   /* drop list-1 (source>0) */
+                    continue;
                 if (!(mvf->pred_flag & (1 << dir)))
                     continue;
 
-                av_assert0(num_mvs < alloc);
-
                 const int src_x = pixel_x + pixel_w / 2;
                 const int src_y = pixel_y + pixel_h / 2;
+                const int dst_x = src_x + (mvf->mv[dir].x >> 2);
+                const int dst_y = src_y + (mvf->mv[dir].y >> 2);
+                if (src_x == dst_x && src_y == dst_y) /* zero-size vector: no displacement, skip */
+                    continue;
+
+                av_assert0(num_mvs < alloc);
 
                 if (compact) {
                     AVMotionVectorCompact *out = &mvs_compact[num_mvs++];
                     out->src_x        = src_x;
                     out->src_y        = src_y;
-                    out->dst_x        = src_x + (mvf->mv[dir].x >> 2);
-                    out->dst_y        = src_y + (mvf->mv[dir].y >> 2);
+                    out->dst_x        = dst_x;
+                    out->dst_y        = dst_y;
                     out->source       = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
                                                    :  (mvf->ref_idx[dir] + 1);
                 } else {
-                    const int dst_x = src_x + (mvf->mv[dir].x >> 2);
-                    const int dst_y = src_y + (mvf->mv[dir].y >> 2);
                     AVMotionVector *out = &mvs_full[num_mvs++];
                     out->w        = (uint8_t)pixel_w;
                     out->h        = (uint8_t)pixel_h;

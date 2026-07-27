@@ -35,6 +35,46 @@
 #include "libavutil/avassert.h"
 #include "libavutil/mem_internal.h"
 
+/* E9_PROFILE: temporary, read-only RDTSC instrumentation isolating the
+ * B_SKIP/spatial-direct neighbor-cache-fill call site in decode_mb_skip from
+ * the general per-MB fill_decode_neighbors/fill_decode_caches call site in
+ * h264_cabac.c, which the flamegraph's function-name-only view conflates.
+ * Zero overhead unless E9_PROFILE is set; removed once measured. */
+#include <stdio.h>
+#include <stdlib.h>
+#if defined(__x86_64__) || defined(__i386__)
+#include <x86intrin.h>
+#define E9_RDTSC() __rdtsc()
+#else
+#define E9_RDTSC() 0ULL
+#endif
+static int e9_mv_profile_enabled = -1;
+/* E9_FORCE_ORIGINAL: A/B toggle for benchmarking, forces the pre-optimization
+ * fill_decode_neighbors()+fill_decode_caches() pair instead of
+ * fill_decode_neighbors_caches_bskip_direct(). Temporary, removed alongside
+ * the rest of this instrumentation. */
+static int e9_force_original = -1;
+static unsigned long long e9_skip_calls = 0;
+static unsigned long long e9_bskip_cache_cycles = 0;   /* fill_decode_neighbors+caches, B_SKIP direct */
+static unsigned long long e9_pskip_neighbors_cycles = 0; /* fill_decode_neighbors, P_SKIP */
+static unsigned long long e9_skip_direct_motion_cycles = 0; /* ff_h264_pred_direct_motion */
+static unsigned long long e9_skip_pskip_motion_cycles = 0;  /* pred_pskip_motion */
+static unsigned long long e9_skip_writeback_cycles = 0;     /* write_back_motion, skip path only */
+
+__attribute__((destructor))
+static void e9_mv_profile_report(void)
+{
+    if (e9_mv_profile_enabled == 1) {
+        fprintf(stderr,
+                "E9SKIPPROFILE skip_calls=%llu bskip_cache_cycles=%llu "
+                "pskip_neighbors_cycles=%llu direct_motion_cycles=%llu "
+                "pskip_motion_cycles=%llu writeback_cycles=%llu\n",
+                e9_skip_calls, e9_bskip_cache_cycles, e9_pskip_neighbors_cycles,
+                e9_skip_direct_motion_cycles, e9_skip_pskip_motion_cycles,
+                e9_skip_writeback_cycles);
+    }
+}
+
 
 /**
  * Get the predicted intra4x4 prediction mode.
@@ -929,12 +969,105 @@ static void fill_decode_caches(const H264Context *h, H264SliceContext *sl, int m
 }
 
 /**
+ * Minimal replacement for fill_decode_neighbors()+fill_decode_caches() at the
+ * B_SKIP/spatial-direct call site in decode_mb_skip(). pred_spatial_direct_motion()
+ * (the only consumer for a whole-MB, non-8x8 direct block) reads exactly one
+ * left/top/topright/topleft ref_cache+mv_cache position per list — never the
+ * full 4-wide top row fill_decode_caches() populates via AV_COPY128, and
+ * never the nnz/cbp/intra-availability bookkeeping (already IS_SKIP()-gated
+ * off in the general function) or mvd_cache/direct_cache fill (already
+ * skipped by the MB_TYPE_SKIP|MB_TYPE_DIRECT2 `continue` in the general
+ * function, for non-MBAFF content). Only handles the non-MBAFF case — MBAFF
+ * has its own field/frame remapping this function doesn't replicate, so the
+ * call site falls back to the general-purpose functions for that case.
+ */
+static void fill_decode_neighbors_caches_bskip_direct(const H264Context *h,
+                                                       H264SliceContext *sl,
+                                                       int mb_type)
+{
+    int topleft_xy, top_xy, topright_xy, left_xy[LEFT_MBS];
+    int topleft_type, top_type, topright_type, left_type[LEFT_MBS];
+    const uint8_t *left_block;
+    const int b_stride = h->b_stride;
+    int list;
+
+    fill_decode_neighbors(h, sl, mb_type);
+
+    topleft_xy      = sl->topleft_mb_xy;
+    top_xy          = sl->top_mb_xy;
+    topright_xy     = sl->topright_mb_xy;
+    left_xy[LTOP]   = sl->left_mb_xy[LTOP];
+    left_xy[LBOT]   = sl->left_mb_xy[LBOT];
+    topleft_type    = sl->topleft_type;
+    top_type        = sl->top_type;
+    topright_type   = sl->topright_type;
+    left_type[LTOP] = sl->left_type[LTOP];
+    left_type[LBOT] = sl->left_type[LBOT];
+    left_block      = sl->left_block;
+
+    for (list = 0; list < sl->list_count; list++) {
+        int8_t *ref_cache      = &sl->ref_cache[list][scan8[0]];
+        const int8_t *ref      = h->cur_pic.ref_index[list];
+        int16_t(*mv_cache)[2]  = &sl->mv_cache[list][scan8[0]];
+        const int16_t(*mv)[2]  = h->cur_pic.motion_val[list];
+        if (!USES_LIST(mb_type, list))
+            continue;
+
+        if (USES_LIST(left_type[LTOP], list)) {
+            const int b_xy  = h->mb2b_xy[left_xy[LTOP]] + 3;
+            const int b8_xy = 4 * left_xy[LTOP] + 1;
+            AV_COPY32(mv_cache[-1], mv[b_xy + b_stride * left_block[0]]);
+            ref_cache[-1] = ref[b8_xy + (left_block[0] & ~1)];
+        } else {
+            AV_ZERO32(mv_cache[-1]);
+            ref_cache[-1] = left_type[LTOP] ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+
+        if (USES_LIST(top_type, list)) {
+            const int b_xy = h->mb2b_xy[top_xy] + 3 * b_stride;
+            AV_COPY32(mv_cache[-1 * 8], mv[b_xy]);
+            ref_cache[-1 * 8] = ref[4 * top_xy + 2];
+        } else {
+            AV_ZERO32(mv_cache[-1 * 8]);
+            ref_cache[-1 * 8] = top_type ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+
+        if (USES_LIST(topright_type, list)) {
+            const int b_xy = h->mb2b_xy[topright_xy] + 3 * b_stride;
+            AV_COPY32(mv_cache[4 - 1 * 8], mv[b_xy]);
+            ref_cache[4 - 1 * 8] = ref[4 * topright_xy + 2];
+        } else {
+            AV_ZERO32(mv_cache[4 - 1 * 8]);
+            ref_cache[4 - 1 * 8] = topright_type ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+
+        /* pred_spatial_direct_motion() only reads topleft when topright's ref
+         * is exactly PART_NOT_AVAILABLE; always populating it (rather than
+         * replicating that exact condition here) is cheap and strictly safer. */
+        if (USES_LIST(topleft_type, list)) {
+            const int b_xy  = h->mb2b_xy[topleft_xy] + 3 + b_stride +
+                              (sl->topleft_partition & 2 * b_stride);
+            const int b8_xy = 4 * topleft_xy + 1 + (sl->topleft_partition & 2);
+            AV_COPY32(mv_cache[-1 - 1 * 8], mv[b_xy]);
+            ref_cache[-1 - 1 * 8] = ref[b8_xy];
+        } else {
+            AV_ZERO32(mv_cache[-1 - 1 * 8]);
+            ref_cache[-1 - 1 * 8] = topleft_type ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+    }
+}
+
+/**
  * decodes a P_SKIP or B_SKIP macroblock
  */
 static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
 {
     const int mb_xy = sl->mb_xy;
     int mb_type     = 0;
+
+    if (e9_mv_profile_enabled < 0)
+        e9_mv_profile_enabled = getenv("E9_PROFILE") != NULL;
+    e9_skip_calls++;
 
     memset(h->non_zero_count[mb_xy], 0, 48);
 
@@ -945,19 +1078,43 @@ static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
         // just for fill_caches. pred_direct_motion will set the real mb_type
         mb_type |= MB_TYPE_L0L1 | MB_TYPE_DIRECT2 | MB_TYPE_SKIP;
         if (sl->direct_spatial_mv_pred) {
-            fill_decode_neighbors(h, sl, mb_type);
-            fill_decode_caches(h, sl, mb_type); //FIXME check what is needed and what not ...
+            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
+            if (e9_force_original < 0)
+                e9_force_original = getenv("E9_FORCE_ORIGINAL") != NULL;
+            if (!e9_force_original && !FRAME_MBAFF(h)) {
+                fill_decode_neighbors_caches_bskip_direct(h, sl, mb_type);
+            } else {
+                fill_decode_neighbors(h, sl, mb_type);
+                fill_decode_caches(h, sl, mb_type); //FIXME check what is needed and what not ...
+            }
+            if (e9_mv_profile_enabled) e9_bskip_cache_cycles += E9_RDTSC() - e9_t0;
         }
-        ff_h264_pred_direct_motion(h, sl, &mb_type);
+        {
+            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
+            ff_h264_pred_direct_motion(h, sl, &mb_type);
+            if (e9_mv_profile_enabled) e9_skip_direct_motion_cycles += E9_RDTSC() - e9_t0;
+        }
         mb_type |= MB_TYPE_SKIP;
     } else {
         mb_type |= MB_TYPE_16x16 | MB_TYPE_P0L0 | MB_TYPE_P1L0 | MB_TYPE_SKIP;
 
-        fill_decode_neighbors(h, sl, mb_type);
-        pred_pskip_motion(h, sl);
+        {
+            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
+            fill_decode_neighbors(h, sl, mb_type);
+            if (e9_mv_profile_enabled) e9_pskip_neighbors_cycles += E9_RDTSC() - e9_t0;
+        }
+        {
+            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
+            pred_pskip_motion(h, sl);
+            if (e9_mv_profile_enabled) e9_skip_pskip_motion_cycles += E9_RDTSC() - e9_t0;
+        }
     }
 
-    write_back_motion(h, sl, mb_type);
+    {
+        unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
+        write_back_motion(h, sl, mb_type);
+        if (e9_mv_profile_enabled) e9_skip_writeback_cycles += E9_RDTSC() - e9_t0;
+    }
     h->cur_pic.mb_type[mb_xy]      = mb_type;
     if (!h->avctx->motion_vectors_only)
         h->cur_pic.qscale_table[mb_xy] = sl->qscale;

@@ -440,6 +440,12 @@ typedef struct AVCodecContext {
     const struct AVCodec  *codec;
     enum AVCodecID     codec_id; /* see AV_CODEC_ID_xxx */
     int motion_vectors_only;
+    /**
+     * Custom: when set, MV export emits only list-0 (source < 0) motion vectors
+     * and drops list-1 (source > 0). P slices are list-0 only (unaffected); B
+     * slices keep only their backward/list-0 vectors; I slices stay empty.
+     */
+    int mv_l0_only;
 
     /**
      * fourcc (LSB first, so "ABCD" -> ('D'<<24) + ('C'<<16) + ('B'<<8) + 'A').

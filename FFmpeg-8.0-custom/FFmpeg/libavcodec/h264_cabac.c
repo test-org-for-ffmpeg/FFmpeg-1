@@ -31,6 +31,7 @@
 
 #include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
+#include "libavutil/time.h"
 #include "config.h"
 #include "cabac.h"
 #include "cabac_functions.h"
@@ -2324,7 +2325,7 @@ decode_cabac_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
  * Decode a macroblock.
  * @return 0 if OK, ER_AC_ERROR / ER_DC_ERROR / ER_MV_ERROR if an error is noticed
  */
-int ff_h264_decode_mb_cabac(const H264Context *h, H264SliceContext *sl)
+static int decode_mb_cabac_e9(const H264Context *h, H264SliceContext *sl)
 {
     const SPS *sps = h->ps.sps;
     int mb_xy;
@@ -2986,4 +2987,43 @@ decode_intra_mb:
     write_back_non_zero_count(h, sl);
 
     return 0;
+}
+
+static unsigned long long e9_calib_tsc0 = 0;
+static int64_t e9_calib_wall0 = 0;
+static unsigned long long e9_total_mb_cycles = 0;
+static unsigned long long e9_mb_calls = 0;
+
+__attribute__((destructor))
+static void e9_total_profile_report(void)
+{
+    if (e9_mv_profile_enabled == 1) {
+        unsigned long long tsc_elapsed = E9_RDTSC() - e9_calib_tsc0;
+        int64_t wall_elapsed_us = av_gettime_relative() - e9_calib_wall0;
+        double cycles_per_us = wall_elapsed_us > 0 ? (double)tsc_elapsed / (double)wall_elapsed_us : 0.0;
+        fprintf(stderr,
+                "E9TOTAL mb_calls=%llu total_mb_cycles=%llu total_mb_us=%.1f calib_cycles_per_us=%.1f\n",
+                e9_mb_calls, e9_total_mb_cycles,
+                cycles_per_us > 0 ? (double)e9_total_mb_cycles / cycles_per_us : 0.0,
+                cycles_per_us);
+    }
+}
+
+int ff_h264_decode_mb_cabac(const H264Context *h, H264SliceContext *sl)
+{
+    if (e9_mv_profile_enabled < 0) {
+        e9_mv_profile_enabled = getenv("E9_PROFILE") != NULL;
+        if (e9_mv_profile_enabled) {
+            e9_calib_wall0 = av_gettime_relative();
+            e9_calib_tsc0 = E9_RDTSC();
+        }
+    }
+    if (!e9_mv_profile_enabled)
+        return decode_mb_cabac_e9(h, sl);
+
+    unsigned long long t0 = E9_RDTSC();
+    int ret = decode_mb_cabac_e9(h, sl);
+    e9_total_mb_cycles += E9_RDTSC() - t0;
+    e9_mb_calls++;
+    return ret;
 }
