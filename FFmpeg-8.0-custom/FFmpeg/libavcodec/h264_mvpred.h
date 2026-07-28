@@ -35,46 +35,6 @@
 #include "libavutil/avassert.h"
 #include "libavutil/mem_internal.h"
 
-/* E9_PROFILE: temporary, read-only RDTSC instrumentation isolating the
- * B_SKIP/spatial-direct neighbor-cache-fill call site in decode_mb_skip from
- * the general per-MB fill_decode_neighbors/fill_decode_caches call site in
- * h264_cabac.c, which the flamegraph's function-name-only view conflates.
- * Zero overhead unless E9_PROFILE is set; removed once measured. */
-#include <stdio.h>
-#include <stdlib.h>
-#if defined(__x86_64__) || defined(__i386__)
-#include <x86intrin.h>
-#define E9_RDTSC() __rdtsc()
-#else
-#define E9_RDTSC() 0ULL
-#endif
-static int e9_mv_profile_enabled = -1;
-/* E9_FORCE_ORIGINAL: A/B toggle for benchmarking, forces the pre-optimization
- * fill_decode_neighbors()+fill_decode_caches() pair instead of
- * fill_decode_neighbors_caches_bskip_direct(). Temporary, removed alongside
- * the rest of this instrumentation. */
-static int e9_force_original = -1;
-static unsigned long long e9_skip_calls = 0;
-static unsigned long long e9_bskip_cache_cycles = 0;   /* fill_decode_neighbors+caches, B_SKIP direct */
-static unsigned long long e9_pskip_neighbors_cycles = 0; /* fill_decode_neighbors, P_SKIP */
-static unsigned long long e9_skip_direct_motion_cycles = 0; /* ff_h264_pred_direct_motion */
-static unsigned long long e9_skip_pskip_motion_cycles = 0;  /* pred_pskip_motion */
-static unsigned long long e9_skip_writeback_cycles = 0;     /* write_back_motion, skip path only */
-
-__attribute__((destructor))
-static void e9_mv_profile_report(void)
-{
-    if (e9_mv_profile_enabled == 1) {
-        fprintf(stderr,
-                "E9SKIPPROFILE skip_calls=%llu bskip_cache_cycles=%llu "
-                "pskip_neighbors_cycles=%llu direct_motion_cycles=%llu "
-                "pskip_motion_cycles=%llu writeback_cycles=%llu\n",
-                e9_skip_calls, e9_bskip_cache_cycles, e9_pskip_neighbors_cycles,
-                e9_skip_direct_motion_cycles, e9_skip_pskip_motion_cycles,
-                e9_skip_writeback_cycles);
-    }
-}
-
 
 /**
  * Get the predicted intra4x4 prediction mode.
@@ -1065,10 +1025,6 @@ static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
     const int mb_xy = sl->mb_xy;
     int mb_type     = 0;
 
-    if (e9_mv_profile_enabled < 0)
-        e9_mv_profile_enabled = getenv("E9_PROFILE") != NULL;
-    e9_skip_calls++;
-
     memset(h->non_zero_count[mb_xy], 0, 48);
 
     if (MB_FIELD(sl))
@@ -1078,43 +1034,25 @@ static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
         // just for fill_caches. pred_direct_motion will set the real mb_type
         mb_type |= MB_TYPE_L0L1 | MB_TYPE_DIRECT2 | MB_TYPE_SKIP;
         if (sl->direct_spatial_mv_pred) {
-            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
-            if (e9_force_original < 0)
-                e9_force_original = getenv("E9_FORCE_ORIGINAL") != NULL;
-            if (!e9_force_original && !FRAME_MBAFF(h)) {
+            /* MBAFF has field/frame remapping the trimmed fill doesn't
+             * replicate, so it keeps the general-purpose pair. */
+            if (!FRAME_MBAFF(h)) {
                 fill_decode_neighbors_caches_bskip_direct(h, sl, mb_type);
             } else {
                 fill_decode_neighbors(h, sl, mb_type);
                 fill_decode_caches(h, sl, mb_type); //FIXME check what is needed and what not ...
             }
-            if (e9_mv_profile_enabled) e9_bskip_cache_cycles += E9_RDTSC() - e9_t0;
         }
-        {
-            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
-            ff_h264_pred_direct_motion(h, sl, &mb_type);
-            if (e9_mv_profile_enabled) e9_skip_direct_motion_cycles += E9_RDTSC() - e9_t0;
-        }
+        ff_h264_pred_direct_motion(h, sl, &mb_type);
         mb_type |= MB_TYPE_SKIP;
     } else {
         mb_type |= MB_TYPE_16x16 | MB_TYPE_P0L0 | MB_TYPE_P1L0 | MB_TYPE_SKIP;
 
-        {
-            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
-            fill_decode_neighbors(h, sl, mb_type);
-            if (e9_mv_profile_enabled) e9_pskip_neighbors_cycles += E9_RDTSC() - e9_t0;
-        }
-        {
-            unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
-            pred_pskip_motion(h, sl);
-            if (e9_mv_profile_enabled) e9_skip_pskip_motion_cycles += E9_RDTSC() - e9_t0;
-        }
+        fill_decode_neighbors(h, sl, mb_type);
+        pred_pskip_motion(h, sl);
     }
 
-    {
-        unsigned long long e9_t0 = e9_mv_profile_enabled ? E9_RDTSC() : 0;
-        write_back_motion(h, sl, mb_type);
-        if (e9_mv_profile_enabled) e9_skip_writeback_cycles += E9_RDTSC() - e9_t0;
-    }
+    write_back_motion(h, sl, mb_type);
     h->cur_pic.mb_type[mb_xy]      = mb_type;
     if (!h->avctx->motion_vectors_only)
         h->cur_pic.qscale_table[mb_xy] = sl->qscale;
