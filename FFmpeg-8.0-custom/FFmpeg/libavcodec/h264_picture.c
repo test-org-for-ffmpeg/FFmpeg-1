@@ -227,7 +227,12 @@ int ff_h264_field_end(H264Context *h, H264SliceContext *sl, int in_setup)
         }
     }
 
-    if (!in_setup && !h->droppable)
+    /* Droppable pictures used to be excluded here (nothing references them, so
+     * nothing waited on them). finalize_frame() now waits on the picture it is
+     * about to read the motion vectors out of, and that picture can be a
+     * non-reference one decoded by a different frame-thread, so every picture
+     * has to report completion or that wait never returns. */
+    if (!in_setup)
         ff_thread_report_progress(&cur->tf, INT_MAX,
                                   h->picture_structure == PICT_BOTTOM_FIELD);
     emms_c();

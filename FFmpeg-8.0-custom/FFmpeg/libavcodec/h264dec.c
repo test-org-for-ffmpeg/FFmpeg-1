@@ -823,7 +823,10 @@ end:
     }
 #endif /* CONFIG_ERROR_RESILIENCE */
     /* clean up */
-    if (h->cur_pic_ptr && !h->droppable && h->has_slice) {
+    /* Droppable pictures report too — see ff_h264_field_end(). This is the
+     * path that covers frames abandoned on a decode error, which never reach
+     * field_end at all. */
+    if (h->cur_pic_ptr && h->has_slice) {
         ff_thread_report_progress(&h->cur_pic_ptr->tf, INT_MAX,
                                   h->picture_structure == PICT_BOTTOM_FIELD);
     }
@@ -970,6 +973,16 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
             return ret;
 
         *got_frame = 1;
+
+        /* h264_select_output_frame() can hand us a picture that another
+         * frame-thread is still decoding, and mb_type/motion_val are written
+         * top-to-bottom right up to the end. Reading them without waiting gave
+         * the last macroblock rows of ~3% of frames whatever the recycled pool
+         * tables still held, differently on every run. Field pictures are left
+         * alone: progress is reported per field and an unpaired field would
+         * never complete the second one. */
+        if (out->tf.progress && !out->field_picture)
+            ff_thread_await_progress(&out->tf, INT_MAX, 0);
 
         if (CONFIG_MPEGVIDEODEC) {
             if (h->avctx->motion_vectors_only)

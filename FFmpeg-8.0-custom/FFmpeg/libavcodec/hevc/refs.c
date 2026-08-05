@@ -324,6 +324,16 @@ int ff_hevc_output_frames(HEVCContext *s,
 
             if (output) {
                 if (s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_MVS) {
+                    /* Bumping runs during the *next* frame's setup, so with
+                     * frame threading tab_mvf can still be being written by
+                     * another worker; without this wait the tail of a frame
+                     * came out differently on every run. The export has to stay
+                     * here rather than move to hevc_frame_end() because the
+                     * av_container_fifo_write() below snapshots the side data
+                     * list. s->cur_frame is skipped: waiting on the frame this
+                     * thread is about to decode would deadlock. */
+                    if (frame != s->cur_frame)
+                        ff_progress_frame_await(&frame->tf, INT_MAX);
                     ret = ff_hevc_export_motion_vectors(s, frame);
                     if (ret < 0)
                         return ret;

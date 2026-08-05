@@ -2572,6 +2572,21 @@ static void predict_field_decoding_flag(const H264Context *h, H264SliceContext *
  */
 static void decode_finish_row(const H264Context *h, H264SliceContext *sl)
 {
+    /* MV-only: report progress every 4th MB row instead of every row. The
+     * only consumer of row-level progress in this mode is
+     * await_reference_mb_row() (co-located MVs for direct-mode B MBs) — the
+     * pixel-reconstruction waits never run — and each report that finds
+     * sleepers pays a futex wake (VTune: pthread_cond_broadcast alone was
+     * ~19% of CPU at 16 threads). Correctness needs only monotonic progress
+     * plus the unconditional INT_MAX report in ff_h264_field_end(), which
+     * covers the trailing rows; a consumer waits at most 3 extra rows.
+     * mb_y advances by 2 under MBAFF, hence the shift — without it the mask
+     * would never fire on interlaced streams and rows would only complete at
+     * field end. ponytail: 4 is unmeasured-optimal; 8 was not tried. */
+    if (h->avctx->motion_vectors_only &&
+        ((sl->mb_y >> FRAME_MBAFF(h)) & 3) != 3)
+        return;
+
     int top            = 16 * (sl->mb_y      >> FIELD_PICTURE(h));
     int pic_height     = 16 *  h->mb_height >> FIELD_PICTURE(h);
     int height         =  16      << FRAME_MBAFF(h);
