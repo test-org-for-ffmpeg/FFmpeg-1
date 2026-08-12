@@ -996,6 +996,10 @@ decode_intra_mb:
                     sl->intra4x4_pred_mode_cache[scan8[i]] = mode;
             }
             write_back_intra_pred_mode(h, sl);
+            /* Custom (MV-only fork): same reasoning as the CABAC path — the modes
+             * are parsed and
+             * written back (later MBs predict from them) but not validated,
+             * because validation only guards pixel reconstruction. */
             if (!h->avctx->motion_vectors_only) {
                 if (ff_h264_check_intra4x4_pred_mode(sl->intra4x4_pred_mode_cache, h->avctx,
                                                      sl->top_samples_available, sl->left_samples_available) < 0)
@@ -1310,6 +1314,15 @@ decode_intra_mb:
             scan8x8 = sl->qscale ? h->zigzag_scan8x8_cavlc : h->zigzag_scan8x8_cavlc_q0;
             scan    = sl->qscale ? h->zigzag_scan : h->zigzag_scan_q0;
         }
+        /* Custom (MV-only fork): CAVLC counterpart of the CABAC *_skip residual
+         * decoders. The
+         * bitstream is still parsed exactly (coeff_token / level / run VLCs
+         * are variable-length, so the next syntax element's position depends
+         * on consuming every bit), but nothing is stored — no dequant, no
+         * scantable scatter into sl->mb[]. Unlike CABAC there is no adaptive
+         * arithmetic state to keep in sync; the constraint here is purely bit
+         * position, which is why the skip variants can use skip_bits() for the
+         * suffix/sign bits instead of decoding their values. */
         if (h->avctx->motion_vectors_only) {
             if((ret = decode_luma_residual_skip(h, sl, gb, mb_type, cbp, 0)) < 0 )
                 return -1;

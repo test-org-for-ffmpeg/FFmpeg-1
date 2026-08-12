@@ -45,6 +45,10 @@ if [ -z "$2" ]; then
     exit
 fi
 
+# Custom (MV-only fork): " custom" suffix so a built binary self-identifies
+# as the patched fork:
+# `ffmpeg -version` / print_ffmpeg_version() in the extractors will show it,
+# which is how a benchmark run proves method3-6 linked the right libavcodec.
 NEW_REVISION="#define FFMPEG_VERSION \"$version custom\""
 OLD_REVISION=$(cat "$2" 2> /dev/null | head -4 | tail -1)
 

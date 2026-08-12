@@ -45,6 +45,14 @@ typedef struct ThreadProgress {
     unsigned   init;
     AVMutex progress_mutex;
     AVCond  progress_cond;
+    /* Custom (MV-only fork): number of threads currently blocked in
+     * ff_thread_progress_await(). Lets the reporter skip the mutex +
+     * broadcast when nobody is listening — which is nearly every call, since
+     * HEVC reports once per CTB row (ff_hevc_hls_filter) while waits are rare
+     * and short. Mirrors the PerThreadContext::progress_waiters fast path
+     * added to the H.264/pthread_frame.c path, where the unconditional
+     * broadcast measured 16-19% of total CPU at 16+ frame threads. */
+    atomic_int waiters;
 } ThreadProgress;
 
 /**

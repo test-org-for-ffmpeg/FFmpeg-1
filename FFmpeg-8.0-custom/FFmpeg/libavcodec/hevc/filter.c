@@ -877,6 +877,13 @@ void ff_hevc_hls_filter(HEVCLocalContext *lc, const HEVCLayerContext *l,
     const HEVCContext *const s = lc->parent;
     int x_end = x >= sps->width  - ctb_size;
     
+    /* Custom (MV-only fork): the whole filter stage (deblocking + SAO) is
+     * pixel work, but
+     * this function is also HEVC's progress-reporting point — frame threads
+     * waiting on this picture's motion field via ff_progress_frame_await()
+     * would stall forever if we returned without reporting. So keep the
+     * report (same row granularity stock uses, one CTB row minus the 4-line
+     * filter margin) and drop only the filtering. */
     if (s->motion_vectors_only) {
         if (s->avctx->active_thread_type & FF_THREAD_FRAME && x_end)
             ff_progress_frame_report(&s->cur_frame->tf, y + ctb_size - 4);

@@ -2195,6 +2195,13 @@ static void hls_prediction_unit(HEVCLocalContext *lc,
         for (i = 0; i < nPbW >> sps->log2_min_pu_size; i++)
             tab_mvf[(y_pu + j) * min_pu_width + x_pu + i] = current_mv;
 
+    /* Custom (MV-only fork): this is the exit point for MV-only HEVC
+     * decoding. tab_mvf (the motion
+     * field that ff_hevc_export_motion_vectors() later merges into PUs) has
+     * just been written, and everything past here is motion compensation —
+     * ref-picture fetch, the await on the reference's pixel progress, and the
+     * luma/chroma MC kernels. Returning here is what makes the reference
+     * pictures' 64x64 stub buffers sufficient. */
     if (s->motion_vectors_only)
        return;
 
@@ -4453,6 +4460,12 @@ static const AVOption options[] = {
         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
     { "strict-displaywin", "strictly apply default display window size", OFFSET(apply_defdispwin),
         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
+    /* Custom (MV-only fork): decoder-private mirror of
+     * AVCodecContext.motion_vectors_only. HEVC keeps
+     * its own copy in HEVCContext (copied in hevc_decode_init) because the hot
+     * paths in cabac.c / hevcdec.c test it per CTU and per PU; going through
+     * s->avctx-> on every test costs an extra indirection in loops that run
+     * millions of times per frame. Both spellings work on the command line. */
     { "motion_vectors_only", "Skip pixel reconstruction, only extract motion vectors",
         OFFSET(motion_vectors_only), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
     { "view_ids", "Array of view IDs that should be decoded and output; a single -1 to decode all views",

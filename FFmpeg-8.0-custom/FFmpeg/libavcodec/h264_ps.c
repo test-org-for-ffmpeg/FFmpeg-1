@@ -818,8 +818,15 @@ int ff_h264_decode_picture_parameter_set(GetBitContext *gb, AVCodecContext *avct
         pps->chroma_qp_index_offset[1] = pps->chroma_qp_index_offset[0];
     }
 
+    /* Custom (MV-only fork): dequantisation tables scale residual
+     * coefficients, and the skip residual
+     * decoders never dequantise. Both tables are per-PPS, so this saves the
+     * build once per parameter set rather than per frame — small, but it also
+     * drops ~6 KB of per-PPS state (dequant4/8_coeff) that would otherwise be
+     * live for the whole decode. chroma_qp_table is still needed below for
+     * CABAC context derivation, hence only these three calls are skipped. */
     if (!avctx->motion_vectors_only) {
-        build_qp_table(pps, 0, pps->chroma_qp_index_offset[0], 
+        build_qp_table(pps, 0, pps->chroma_qp_index_offset[0],
                        sps->bit_depth_luma);
         build_qp_table(pps, 1, pps->chroma_qp_index_offset[1],
                        sps->bit_depth_luma);

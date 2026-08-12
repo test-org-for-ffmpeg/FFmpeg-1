@@ -1018,11 +1018,18 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
     int pred_mode_intra = (c_idx == 0) ? lc->tu.intra_pred_mode :
                                          lc->tu.intra_pred_mode_c;
 
+    /* Custom (MV-only fork): all four are reconstruction-only state, hoisted
+     * out of their stock
+     * initialisers so the MV-only path can leave them null: `dst` points into
+     * the picture (a 64x64 stub here, so the stock address arithmetic would be
+     * out of bounds), and `coeffs` is the transform buffer that gets memset
+     * per TU — that memset alone runs once per transform unit and is pure
+     * waste when nothing is ever written into it. */
     ptrdiff_t stride = 0;
     int hshift = 0, vshift = 0;
     uint8_t *dst = NULL;
     int16_t *coeffs = NULL;
- 
+
     if (!mv_only) {
         stride = s->cur_frame->f->linesize[c_idx];
         hshift = sps->hshift[c_idx];

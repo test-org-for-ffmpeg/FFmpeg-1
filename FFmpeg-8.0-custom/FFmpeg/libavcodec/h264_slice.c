@@ -1055,6 +1055,15 @@ static int h264_slice_header_init(H264Context *h)
     h->chroma_format_idc          = sps->chroma_format_idc;
     h->bit_depth_luma             = sps->bit_depth_luma;
 
+    /* Custom (MV-only fork): h264dsp is still initialised — it carries the
+     * loop-filter and IDCT
+     * pointers that ff_h264_hl_decode_mb() would call, and the extra argument
+     * makes it install no-op stubs instead of the real kernels (h264dsp.c), so
+     * any path that slips through calls a cheap nothing rather than writing
+     * into the 16x16 stub picture. The other four DSP families have no such
+     * stub layer and no caller left once hl_decode_mb is short-circuited, so
+     * they are simply not built: chroma/qpel MC, intra prediction and videodsp
+     * are pure pixel work. */
     ff_h264dsp_init(&h->h264dsp, sps->bit_depth_luma,
                     sps->chroma_format_idc, h->avctx->motion_vectors_only);
     if(!h->avctx->motion_vectors_only) {

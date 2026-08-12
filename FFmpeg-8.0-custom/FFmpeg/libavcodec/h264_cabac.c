@@ -2525,6 +2525,14 @@ decode_intra_mb:
                 }
             }
             write_back_intra_pred_mode(h, sl);
+            /* Custom (MV-only fork): parse the intra pred modes (CABAC state
+             * depends on it,
+             * and write_back_intra_pred_mode feeds the neighbour context of
+             * later MBs) but skip validation. ff_h264_check_intra*_pred_mode()
+             * only rejects modes that reference unavailable neighbouring
+             * *samples* — we never read samples, so an out-of-range mode is
+             * inert here. Skipping it also means a stream that would make
+             * stock FFmpeg bail with -1 still yields its motion vectors. */
             if (!h->avctx->motion_vectors_only) {
                 if (ff_h264_check_intra4x4_pred_mode(sl->intra4x4_pred_mode_cache, h->avctx,
                                                     sl->top_samples_available, sl->left_samples_available) < 0 )
@@ -2773,6 +2781,13 @@ decode_intra_mb:
    }
 
     if( !IS_INTRA16x16( mb_type ) ) {
+        /* Custom (MV-only fork): the *_skip cbp decoders read the same bins
+         * as the stock ones but
+         * derive their neighbour context from the binary "block has non-zero
+         * coefficients" flag the skip residual path leaves in
+         * non_zero_count_cache, instead of the exact coefficient counts stock
+         * maintains. cbp itself still selects which residual blocks follow, so
+         * it must be decoded exactly — only its context source is cheaper. */
         if (h->avctx->motion_vectors_only) {
             cbp = decode_cabac_mb_cbp_luma_skip(sl);
             if (decode_chroma)
