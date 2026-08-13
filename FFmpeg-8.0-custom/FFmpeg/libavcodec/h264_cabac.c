@@ -2859,6 +2859,9 @@ decode_intra_mb:
 
     if( cbp || IS_INTRA16x16( mb_type ) ) {
         const uint8_t *scan, *scan8x8;
+        /* Used only on the non-MV-only path (the *_skip decoders never
+         * dequantise); kept at this scope as upstream has it. */
+        const uint32_t *qmul av_unused;
         /* MV-only fast path: dqp is decoded once per residual-bearing MB; the
          * first bit gates whether any delta exists at all. Inlining the CABAC
          * primitive removes the call/return per bit and lets gcc keep the
@@ -2921,7 +2924,11 @@ decode_intra_mb:
                 decode_cabac_luma_residual(h, sl, scan, scan8x8, pixel_shift, mb_type, cbp, 2);
             }
         } else if (CHROMA422(h)) {
-            DECLARE_ALIGNED(16, int16_t, dummy_chroma)[64];
+            /* Custom (MV-only fork): the *_skip variants store nothing, so the
+             * sl->mb destinations below are evaluated only on the stock path.
+             * They must stay exactly as upstream: ff_h264_chroma422_dc_scan
+             * indexes up to 112 and the AC loop walks `mb` forward per block,
+             * so a small shared scratch buffer here overflows the stack. */
             if( cbp&0x30 ){
                 int c;
                 for (c = 0; c < 2; c++) {
@@ -2930,7 +2937,7 @@ decode_intra_mb:
                                                           CHROMA_DC_BLOCK_INDEX + c,
                                                           ff_h264_chroma422_dc_scan, 8);
                     else
-                        decode_cabac_residual_dc_422(h, sl, dummy_chroma, 3,
+                        decode_cabac_residual_dc_422(h, sl, sl->mb + ((256 + 16*16*c) << pixel_shift), 3,
                                                      CHROMA_DC_BLOCK_INDEX + c,
                                                      ff_h264_chroma422_dc_scan, 8);
                 }
@@ -2938,17 +2945,21 @@ decode_intra_mb:
 
             if( cbp&0x20 ) {
                 int c, i, i8x8;
-                const uint32_t *qmul = NULL;
                 for( c = 0; c < 2; c++ ) {
-                    if (!h->avctx->motion_vectors_only)
+                    int16_t *mb = NULL;
+                    if (!h->avctx->motion_vectors_only) {
+                        mb   = sl->mb + (16*(16 + 16*c) << pixel_shift);
                         qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
+                    }
                     for (i8x8 = 0; i8x8 < 2; i8x8++) {
                         for (i = 0; i < 4; i++) {
                             const int index = 16 + 16 * c + 8*i8x8 + i;
                             if (h->avctx->motion_vectors_only)
                                 decode_cabac_residual_nondc_skip(h, sl, 4, index, scan + 1, 15);
-                            else
-                                decode_cabac_residual_nondc(h, sl, dummy_chroma, 4, index, scan + 1, qmul, 15);
+                            else {
+                                decode_cabac_residual_nondc(h, sl, mb, 4, index, scan + 1, qmul, 15);
+                                mb += 16<<pixel_shift;
+                            }
                         }
                     }
                 }
@@ -2957,7 +2968,8 @@ decode_intra_mb:
                 fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
             }
         } else /* yuv420 */ {
-            DECLARE_ALIGNED(16, int16_t, dummy_chroma)[64];
+            /* Custom (MV-only fork): as in the 4:2:2 branch above — the stock
+             * path keeps its real sl->mb destinations. */
             if( cbp&0x30 ){
                 int c;
                 for (c = 0; c < 2; c++) {
@@ -2965,14 +2977,13 @@ decode_intra_mb:
                         decode_cabac_residual_dc_skip(h, sl,
                                                       3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
                     else
-                        decode_cabac_residual_dc(h, sl, dummy_chroma,
+                        decode_cabac_residual_dc(h, sl, sl->mb + ((256 + 16 * 16 * c) << pixel_shift),
                                                  3, CHROMA_DC_BLOCK_INDEX + c, ff_h264_chroma_dc_scan, 4);
                 }
             }
 
             if( cbp&0x20 ) {
                 int c, i;
-                const uint32_t *qmul = NULL;
                 for( c = 0; c < 2; c++ ) {
                     if (!h->avctx->motion_vectors_only)
                         qmul = h->ps.pps->dequant4_coeff[c+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[c]];
@@ -2981,7 +2992,7 @@ decode_intra_mb:
                         if (h->avctx->motion_vectors_only)
                             decode_cabac_residual_nondc_skip(h, sl, 4, index, scan + 1, 15);
                         else
-                            decode_cabac_residual_nondc(h, sl, dummy_chroma, 4, index, scan + 1, qmul, 15);
+                            decode_cabac_residual_nondc(h, sl, sl->mb + (16*index << pixel_shift), 4, index, scan + 1, qmul, 15);
                     }
                 }
             } else {

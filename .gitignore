@@ -11,3 +11,5 @@ FFmpeg-8.0/share
 FFmpeg-8.0-custom/share
 
 *Zone.Identifier*
+
+FFmpeg-8.0-custom/pgo

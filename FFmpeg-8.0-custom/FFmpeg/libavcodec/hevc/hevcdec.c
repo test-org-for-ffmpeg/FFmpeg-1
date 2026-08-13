@@ -3665,8 +3665,16 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
                     out->src_y        = src_y;
                     out->dst_x        = dst_x;
                     out->dst_y        = dst_y;
-                    out->source       = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
-                                                   :  (mvf->ref_idx[dir] + 1);
+                    /* Custom (MV-only fork): sign only — -1 = list 0, +1 =
+                     * list 1, matching add_mb()/add_mb_compact() in
+                     * mpegutils.c. This used to encode the reference index as
+                     * -(ref_idx+1), which made h265 rows incomparable with
+                     * h264's and meant `mv_l0_only` output still carried -1,
+                     * -2, -3 instead of a single list marker. The ref index is
+                     * not part of the exported contract; consumers key on the
+                     * list, and AVMotionVector documents `source` as a
+                     * direction, not an index. */
+                    out->source       = dir ? 1 : -1;
                 } else {
                     AVMotionVector *out = &mvs_full[num_mvs++];
                     out->w        = (uint8_t)pixel_w;
@@ -3685,8 +3693,8 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
                      * source: negative = L0 (past/backward), positive = L1 (future/forward)
                      * Use the signed reference index convention matching H.264 export.
                      */
-                    out->source = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
-                                             :  (mvf->ref_idx[dir] + 1);
+                    /* Custom (MV-only fork): sign only, as above. */
+                    out->source = dir ? 1 : -1;
                 }
             }
         }
@@ -4043,6 +4051,19 @@ fail:
             ff_progress_frame_report(&l->cur_frame->tf, INT_MAX);
     }
 
+    /* Custom (MV-only fork): drain the deferred MV exports here rather than
+     * right after ff_thread_finish_setup(). Both points are past setup — so
+     * neither blocks the next worker — but only here has *this* picture
+     * finished decoding and reported progress, which matters because the
+     * bumping process can select the current picture itself (num_reorder == 0,
+     * or a low-delay stream). Waiting on our own undecoded frame right after
+     * setup deadlocks; waiting here is always satisfiable. */
+    if (ret >= 0) {
+        int ret2 = ff_hevc_flush_deferred_output(s);
+        if (ret2 < 0)
+            ret = ret2;
+    }
+
     return ret;
 }
 
@@ -4099,6 +4120,11 @@ static int hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     if (ret == AVERROR_EOF) {
         ret = ff_hevc_output_frames(s, s->layers_active_decode,
                                     s->layers_active_output, 0, 0, 0);
+        if (ret < 0)
+            return ret;
+        /* Custom (MV-only fork): drain path — no finish_setup follows, so flush
+         * the deferred exports here or the tail pictures never reach the fifo. */
+        ret = ff_hevc_flush_deferred_output(s);
         if (ret < 0)
             return ret;
         goto do_output;
@@ -4175,6 +4201,8 @@ static int hevc_ref_frame(HEVCFrame *dst, const HEVCFrame *src)
 static av_cold int hevc_decode_free(AVCodecContext *avctx)
 {
     HEVCContext       *s = avctx->priv_data;
+
+    ff_hevc_discard_deferred_output(s);
 
     for (int i = 0; i < FF_ARRAY_ELEMS(s->layers); i++) {
         pic_arrays_free(&s->layers[i]);
@@ -4442,6 +4470,7 @@ static av_cold int hevc_decode_init(AVCodecContext *avctx)
 static void hevc_decode_flush(AVCodecContext *avctx)
 {
     HEVCContext *s = avctx->priv_data;
+    ff_hevc_discard_deferred_output(s);
     ff_hevc_flush_dpb(s);
     ff_hevc_reset_sei(&s->sei);
     ff_dovi_ctx_flush(&s->dovi_ctx);

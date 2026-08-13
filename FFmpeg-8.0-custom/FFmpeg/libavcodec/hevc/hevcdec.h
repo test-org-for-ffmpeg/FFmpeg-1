@@ -489,6 +489,21 @@ typedef struct HEVCLayerContext {
     struct AVRefStructPool *rpl_tab_pool;
 } HEVCLayerContext;
 
+/* Custom (MV-only fork): a picture whose output has been selected but whose
+ * export + fifo write are deferred until after ff_thread_finish_setup().
+ * Holds its own references so the DPB is free to drop the frame in the
+ * meantime: tf keeps the AVFrame alive, pps carries the geometry the export
+ * reads (pps->sps min-PU dimensions), tab_mvf is the motion field itself. */
+#define HEVC_DEFERRED_OUTPUT_MAX 64
+typedef struct HEVCDeferredOutput {
+    ProgressFrame  tf;       ///< ref on the decoded picture (await + keepalive)
+    AVFrame       *f;        ///< frame handed to the fifo (may be frame_grain)
+    const HEVCPPS *pps;      ///< RefStruct reference
+    MvField       *tab_mvf;  ///< RefStruct reference
+    int            corrupt;
+    int            poc;
+} HEVCDeferredOutput;
+
 typedef struct HEVCContext {
     const AVClass *c;  // needed by private avoptions
     AVCodecContext *avctx;
@@ -508,6 +523,19 @@ typedef struct HEVCContext {
     uint8_t slice_initialized;
 
     struct AVContainerFifo *output_fifo;
+
+    /* Custom (MV-only fork): pictures the bumping process selected for output
+     * whose MV export and fifo write were deferred out of the setup path.
+     * ff_hevc_output_frames() runs inside hevc_frame_start(), i.e. *before*
+     * ff_thread_finish_setup(); doing the export there means waiting on a
+     * picture another worker may still be decoding, which blocks setup and
+     * serialises frame threading end to end (measured: zero speedup from 16
+     * threads). Selection and DPB management stay put; the wait, the export
+     * and the fifo write happen in ff_hevc_flush_deferred_output() after
+     * setup is released. Bump order is preserved because entries are appended
+     * and flushed in order, and the fifo has no other writer. */
+    HEVCDeferredOutput deferred_out[HEVC_DEFERRED_OUTPUT_MAX];
+    int nb_deferred_out;
 
     HEVCParamSets ps;
     HEVCSEI sei;
@@ -682,6 +710,11 @@ static av_always_inline int ff_hevc_nal_is_nonref(enum HEVCNALUnitType type)
  * @param max_dpb maximum number of any frames that can be present in the DPB
  *                for any layer before output is triggered
  */
+/* Custom (MV-only fork): drain pictures whose export + fifo write were
+ * deferred out of the setup path. Call after ff_thread_finish_setup(). */
+int ff_hevc_flush_deferred_output(HEVCContext *s);
+void ff_hevc_discard_deferred_output(HEVCContext *s);
+
 int ff_hevc_output_frames(HEVCContext *s,
                           unsigned layers_active_decode, unsigned layers_active_output,
                           unsigned max_output, unsigned max_dpb, int discard);
