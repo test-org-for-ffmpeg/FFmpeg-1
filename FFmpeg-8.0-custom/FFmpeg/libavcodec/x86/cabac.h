@@ -54,14 +54,26 @@
 #ifdef BROKEN_RELOCATIONS
 #define TABLES_ARG , "r"(tables)
 
+/* Interval-split decision, branchless. `tmp` holds rMPS<<17 on entry and %ecx
+ * holds rMPS; the bin is MPS iff (rMPS<<17) > low.
+ *
+ * The trick is that ONE `cmp` drives three separate updates: `cmova` (which
+ * does not touch flags) picks the new range, then `sbb %rcx,%rcx` turns the
+ * same carry into an all-ones/all-zeros LPS mask, and that mask drives both the
+ * `low` subtraction and the context-state flip. Ordering matters — `sbb` must
+ * come after `cmova` and before anything else writes flags.
+ *
+ * Branchless is not stylistic here: an arithmetic coder that is doing its job
+ * emits ~50/50 unpredictable bins, so a real branch would mispredict about half
+ * the time (~15-20 cycles). See ASSEMBLY_ANALYSIS.md §4.1. */
 #if HAVE_FAST_CMOV
 #define BRANCHLESS_GET_CABAC_UPDATE(ret, retq, low, range, tmp) \
-        "cmp    "low"       , "tmp"                        \n\t"\
-        "cmova  %%ecx       , "range"                      \n\t"\
-        "sbb    %%rcx       , %%rcx                        \n\t"\
-        "and    %%ecx       , "tmp"                        \n\t"\
-        "xor    %%rcx       , "retq"                       \n\t"\
-        "sub    "tmp"       , "low"                        \n\t"
+        "cmp    "low"       , "tmp"                        \n\t"/* (rMPS<<17) vs low -> CF */\
+        "cmova  %%ecx       , "range"                      \n\t"/* MPS: range = rMPS      */\
+        "sbb    %%rcx       , %%rcx                        \n\t"/* mask = -CF (LPS ? -1:0)*/\
+        "and    %%ecx       , "tmp"                        \n\t"/* subtract only on LPS   */\
+        "xor    %%rcx       , "retq"                       \n\t"/* s ^= mask -> LPS half  */\
+        "sub    "tmp"       , "low"                        \n\t"/* low -= (rMPS<<17)&mask */
 #else /* HAVE_FAST_CMOV */
 #define BRANCHLESS_GET_CABAC_UPDATE(ret, retq, low, range, tmp) \
 /* P4 Prescott has crappy cmov,sbb,64-bit shift so avoid them */ \
@@ -77,39 +89,75 @@
         "movslq "ret"       , "retq"                       \n\t"
 #endif /* HAVE_FAST_CMOV */
 
+/* Decode ONE context-coded CABAC bin. This is the engine of the whole decoder:
+ * in the MV-only fork it accounts for roughly half of all libavcodec CPU time
+ * (ASSEMBLY_ANALYSIS.md §2), expanded inline at every call site.
+ *
+ * State: `range` (9-bit interval width), `low` (position, with 16 bits of
+ * look-ahead), `*statep` (one byte: 6-bit probability index | 1 MPS bit), and
+ * `byte` (the bytestream read pointer). Returns the bin in `ret & 1`.
+ *
+ * Four steps, in order:
+ *   1. Split the interval. `range & 0xC0` quantises range to its top 2 bits;
+ *      that plus the context state indexes ff_h264_cabac_tables to give
+ *      RangeLPS. rMPS = range - RangeLPS.
+ *   2. Decide MPS vs LPS branchlessly — see BRANCHLESS_GET_CABAC_UPDATE above.
+ *   3. Renormalise and update the model. norm_shift[] gives the whole shift
+ *      count in one lookup rather than the spec's shift-by-one loop, and
+ *      mlps_state[] gives the next context state — this store is what makes
+ *      the coder *adaptive*, and is why bins cannot be skipped (see §2.2).
+ *   4. Refill 16 bits when low's look-ahead empties.
+ *
+ * Three notes for anyone tempted to "improve" this:
+ *   - lps_range/norm_shift/mlps_state are all slices of ONE 1536-byte array,
+ *     so each lookup is a single movzbl off the table base held in a register.
+ *   - The cost is latency, not instruction count: ~30 instructions forming a
+ *     serial dependency chain (LUT load -> sub -> cmp/cmova -> mask -> shl ->
+ *     store) that cannot overlap with itself. perf annotate puts ~81% of t1
+ *     decode CPU on exactly these instructions.
+ *   - Four independent attempts to speed this up all measured neutral; see
+ *     OPTIMIZATION_ANALYSIS.md §2.3-§2.5 before trying a fifth.
+ *
+ * This is the BROKEN_RELOCATIONS (PIC) variant — the one this build compiles,
+ * taking the table base as a register operand. The #else branch below is the
+ * same algorithm with MANGLE() absolute addressing. */
 #define BRANCHLESS_GET_CABAC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables) \
-        "movzbl "statep"    , "ret"                                     \n\t"\
-        "mov    "range"     , "tmp"                                     \n\t"\
-        "and    $0xC0       , "range"                                   \n\t"\
-        "lea    ("ret", "range", 2), %%ecx                              \n\t"\
-        "movzbl "lps_off"("tables", %%rcx), "range"                     \n\t"\
-        "sub    "range"     , "tmp"                                     \n\t"\
-        "mov    "tmp"       , %%ecx                                     \n\t"\
-        "shl    $17         , "tmp"                                     \n\t"\
+        /* ---- 1. split the interval ------------------------------------- */\
+        "movzbl "statep"    , "ret"                                     \n\t"/* s = *state           */\
+        "mov    "range"     , "tmp"                                     \n\t"/* keep a copy of range */\
+        "and    $0xC0       , "range"                                   \n\t"/* quantise: top 2 bits */\
+        "lea    ("ret", "range", 2), %%ecx                              \n\t"/* idx = s + 2*(range&0xC0) */\
+        "movzbl "lps_off"("tables", %%rcx), "range"                     \n\t"/* RangeLPS = lps_range[idx] */\
+        "sub    "range"     , "tmp"                                     \n\t"/* rMPS = range - RangeLPS */\
+        "mov    "tmp"       , %%ecx                                     \n\t"/* save rMPS            */\
+        "shl    $17         , "tmp"                                     \n\t"/* align to low's scale */\
+        /* ---- 2. MPS/LPS select, branchless ----------------------------- */\
         BRANCHLESS_GET_CABAC_UPDATE(ret, retq, low, range, tmp)              \
-        "movzbl "norm_off"("tables", "rangeq"), %%ecx                   \n\t"\
-        "shl    %%cl        , "range"                                   \n\t"\
-        "movzbl "mlps_off"+128("tables", "retq"), "tmp"                 \n\t"\
-        "shl    %%cl        , "low"                                     \n\t"\
-        "mov    "tmpbyte"   , "statep"                                  \n\t"\
+        /* ---- 3. renormalise + update the context model ----------------- */\
+        "movzbl "norm_off"("tables", "rangeq"), %%ecx                   \n\t"/* shift = norm_shift[range] */\
+        "shl    %%cl        , "range"                                   \n\t"/* range <<= shift      */\
+        "movzbl "mlps_off"+128("tables", "retq"), "tmp"                 \n\t"/* next = mlps_state[128+s] */\
+        "shl    %%cl        , "low"                                     \n\t"/* low   <<= shift      */\
+        "mov    "tmpbyte"   , "statep"                                  \n\t"/* *state = next  <- adaptive */\
+        /* ---- 4. refill 16 bits if low's look-ahead is empty ------------ */\
         "test   "lowword"   , "lowword"                                 \n\t"\
-        "jnz    2f                                                      \n\t"\
-        "mov    "byte"      , %%"FF_REG_c"                              \n\t"\
+        "jnz    2f                                                      \n\t"/* still have bits -> done */\
+        "mov    "byte"      , %%"FF_REG_c"                              \n\t"/* p = c->bytestream    */\
         END_CHECK(end)\
-        "add"FF_OPSIZE" $2  , "byte"                                    \n\t"\
+        "add"FF_OPSIZE" $2  , "byte"                                    \n\t"/* bytestream += 2      */\
         "1:                                                             \n\t"\
-        "movzwl (%%"FF_REG_c") , "tmp"                                  \n\t"\
-        "lea    -1("low")   , %%ecx                                     \n\t"\
-        "xor    "low"       , %%ecx                                     \n\t"\
-        "shr    $15         , %%ecx                                     \n\t"\
-        "bswap  "tmp"                                                   \n\t"\
+        "movzwl (%%"FF_REG_c") , "tmp"                                  \n\t"/* read 2 bytes         */\
+        "lea    -1("low")   , %%ecx                                     \n\t"/* \                    */\
+        "xor    "low"       , %%ecx                                     \n\t"/*  } how many low bits */\
+        "shr    $15         , %%ecx                                     \n\t"/* /  are free          */\
+        "bswap  "tmp"                                                   \n\t"/* big-endian -> host   */\
         "shr    $15         , "tmp"                                     \n\t"\
-        "movzbl "norm_off"("tables", %%rcx), %%ecx                      \n\t"\
+        "movzbl "norm_off"("tables", %%rcx), %%ecx                      \n\t"/* reuse norm_shift[]   */\
         "sub    $0xFFFF     , "tmp"                                     \n\t"\
         "neg    %%ecx                                                   \n\t"\
         "add    $7          , %%ecx                                     \n\t"\
-        "shl    %%cl        , "tmp"                                     \n\t"\
-        "add    "tmp"       , "low"                                     \n\t"\
+        "shl    %%cl        , "tmp"                                     \n\t"/* position new bits    */\
+        "add    "tmp"       , "low"                                     \n\t"/* splice into low      */\
         "2:                                                             \n\t"
 
 #else /* BROKEN_RELOCATIONS */
@@ -175,6 +223,18 @@
 
 #endif /* BROKEN_RELOCATIONS */
 
+/* One context-coded bin: BRANCHLESS_GET_CABAC expanded once. Everything that is
+ * not a residual significance scan comes through here — mb_type, mb_skip, ref
+ * idx, MVD magnitudes, coded-block flags, coefficient levels.
+ *
+ * The single largest consumer of CPU in the MV-only extractor: 142.7 s across
+ * the profiled corpus, 23-33% of any single run (ASSEMBLY_ANALYSIS.md §4.2).
+ *
+ * av_always_inline on x86-64, so most call sites get a private copy welded in;
+ * VTune attributes those copies back to this symbol via debug info, which is
+ * why the same name can appear a dozen times in one hotspots.csv. GCC also
+ * emits out-of-line copies for the C `get_cabac()` wrapper — measured, forcing
+ * those inline does NOT help (see cabac_functions.h and §2.3). */
 #if HAVE_7REGS && !BROKEN_COMPILER
 #define get_cabac_inline get_cabac_inline_x86
 static
@@ -217,6 +277,16 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
 #endif /* HAVE_7REGS && !BROKEN_COMPILER */
 
 #if !BROKEN_COMPILER
+/* A BYPASS bin — no context model, no probability lookup: the bin is literally
+ * the next binary digit of low/range, so the whole decode is shift-and-compare
+ * plus a refill. `cdq` is the trick: after the subtraction, eax's sign bit IS
+ * the answer, and cdq broadcasts it into edx as an all-ones/all-zeros mask.
+ *
+ * This variant folds the sign application in — `xor`/`sub` against the mask
+ * turns val into +val or -val with no branch — and is used for motion vector
+ * difference signs, one of the few bypass bins in MV-only mode whose *value*
+ * actually matters. Contrast consume_cabac_bypass_x86() in h264_cabac.c, which
+ * drops the value entirely. ASSEMBLY_ANALYSIS.md §4.6. */
 #define get_cabac_bypass_sign get_cabac_bypass_sign_x86
 static av_always_inline int get_cabac_bypass_sign_x86(CABACContext *c, int val)
 {
@@ -263,6 +333,13 @@ static av_always_inline int get_cabac_bypass_sign_x86(CABACContext *c, int val)
     return val;
 }
 
+/* The stock bypass primitive, returning the bin in %edx (note the `inc %edx`
+ * that turns the 0/-1 mask into 0/1 — dropping exactly that instruction is what
+ * makes consume_cabac_bypass_x86() cheaper).
+ *
+ * In MV-only mode this is reached only from SKIP_BLOCK's escape-prefix loop,
+ * i.e. coefficients with |level| >= 15, which are rare at surveillance
+ * bitrates — hence <0.6% of any run. ASSEMBLY_ANALYSIS.md §4.7. */
 #define get_cabac_bypass get_cabac_bypass_x86
 static av_always_inline int get_cabac_bypass_x86(CABACContext *c)
 {
