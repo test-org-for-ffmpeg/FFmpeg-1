@@ -1086,7 +1086,12 @@ static int h264_decode_frame(AVCodecContext *avctx, AVFrame *pict,
     }
 
     if (!(avctx->flags2 & AV_CODEC_FLAG2_CHUNKS) && (!h->cur_pic_ptr || !h->has_slice)) {
+        /* Custom: mv_skip_every_nth drops whole pictures, so a packet
+         * legitimately produces no picture - the same situation skip_frame is
+         * already exempted from here. Without this the decimated packets would
+         * each fail with "no frame!". */
         if (avctx->skip_frame >= AVDISCARD_NONREF ||
+            avctx->mv_skip_every_nth > 1 ||
             buf_size >= 4 && !memcmp("Q264", buf, 4))
             return buf_size;
         av_log(avctx, AV_LOG_ERROR, "no frame!\n");

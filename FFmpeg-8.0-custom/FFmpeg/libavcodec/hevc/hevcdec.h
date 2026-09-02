@@ -569,6 +569,9 @@ typedef struct HEVCContext {
 
     /** used on BE to byteswap the lines for checksumming */
     uint8_t *checksum_buf;
+
+    /* Custom: pictures seen in decode order, for mv_skip_every_nth. */
+    int mv_pic_index;
     int      checksum_buf_size;
 
     /** The target for the common_cabac_state of the local contexts. */

@@ -459,7 +459,7 @@ typedef struct AVCodecContext {
      * wants: uniform coverage of the scene rather than a raster-order subset.
      *
      * Still an export-time filter: it shrinks output, it does not save decode
-     * time. Only skip_frame does that.
+     * time. Only mv_skip_every_nth / skip_frame do that.
      */
     int mv_grid;
 
@@ -470,6 +470,30 @@ typedef struct AVCodecContext {
      * mv_grid.
      */
     int mv_min_size;
+
+    /**
+     * Custom: skip every Nth picture, counted in decode order, dropping it
+     * before any entropy decoding happens and decoding all the others. 0 or 1
+     * decodes every picture. IDR pictures are always decoded so the stream
+     * stays anchored.
+     *
+     * So 2 drops half the pictures, 3 drops a third, 4 a quarter: the trim gets
+     * *gentler* as N rises, the opposite of the mv_grid vector filter. That is
+     * deliberate. A skipped picture cannot be reconstructed afterwards -
+     * interpolating one from its decoded neighbours measured a median error
+     * larger than the median motion itself - so the useful range here is a mild
+     * trim, not aggressive decimation.
+     *
+     * Unlike mv_grid / mv_min_size (which filter already-decoded vectors and so
+     * cost full decode time), this genuinely reduces work: a skipped picture
+     * has none of its CABAC bins consumed.
+     *
+     * Safe for I/P motion vectors, which H.264 predicts from spatial
+     * neighbours within the same slice. B slices using temporal direct mode
+     * read the collocated picture's motion field, so if that picture was
+     * skipped their vectors are unreliable - combine with skip_frame=bidir.
+     */
+    int mv_skip_every_nth;
 
 
     /**

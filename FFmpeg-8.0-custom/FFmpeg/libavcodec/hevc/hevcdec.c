@@ -3815,6 +3815,15 @@ static int decode_slice(HEVCContext *s, unsigned nal_idx, GetBitContext *gb)
         return ret;
     }
 
+    /* Custom: temporal decimation - see mv_skip_every_nth in avcodec.h.
+     * Counted at the first slice of each picture; IRAP is always decoded. */
+    if (s->avctx->mv_skip_every_nth > 1 && s->sh.first_slice_in_pic_flag &&
+        !IS_IRAP(s)) {
+        int idx = s->mv_pic_index++;
+        if (idx % s->avctx->mv_skip_every_nth == 0)
+            return 0;
+    }
+
     if ((s->avctx->skip_frame >= AVDISCARD_BIDIR && s->sh.slice_type == HEVC_SLICE_B) ||
         (s->avctx->skip_frame >= AVDISCARD_NONINTRA && s->sh.slice_type != HEVC_SLICE_I) ||
         (s->avctx->skip_frame >= AVDISCARD_NONKEY && !IS_IRAP(s)) ||

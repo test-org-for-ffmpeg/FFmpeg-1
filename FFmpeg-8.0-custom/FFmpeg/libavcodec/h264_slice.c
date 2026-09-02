@@ -2198,6 +2198,17 @@ int ff_h264_queue_decode_slice(H264Context *h, const H2645NAL *nal)
         av_assert0(sl == h->slice_ctx);
 
     if (h->current_slice == 0 && !h->first_field) {
+        /* Custom: temporal decimation. Counted once per picture in decode
+         * order, here at the first slice of a new picture. IDR is always
+         * decoded so the stream keeps an anchor. Drops every Nth picture and
+         * keeps the rest, so larger N is a gentler trim; the dropped ones lose
+         * their CABAC bins entirely. */
+        if (h->avctx->mv_skip_every_nth > 1 &&
+            h->nal_unit_type != H264_NAL_IDR_SLICE) {
+            int idx = h->mv_pic_index++;
+            if (idx % h->avctx->mv_skip_every_nth == 0)
+                return 0;
+        }
         if (
             (h->avctx->skip_frame >= AVDISCARD_NONREF && !h->nal_ref_idc) ||
             (h->avctx->skip_frame >= AVDISCARD_BIDIR  && sl->slice_type_nos == AV_PICTURE_TYPE_B) ||
