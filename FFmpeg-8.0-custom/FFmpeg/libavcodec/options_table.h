@@ -74,6 +74,8 @@ static const AVOption avcodec_options[] = {
 {"ilme", "interlaced motion estimation", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_INTERLACED_ME }, INT_MIN, INT_MAX, V|E, .unit = "flags"},
 {"motion_vectors_only", "Only decode motion vectors", offsetof(AVCodecContext, motion_vectors_only), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_AUDIO_PARAM | AV_OPT_FLAG_VIDEO_PARAM },
 {"mv_l0_only", "Export only list-0 (source<0) motion vectors, dropping list-1", offsetof(AVCodecContext, mv_l0_only), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_AUDIO_PARAM | AV_OPT_FLAG_VIDEO_PARAM },
+{"mv_grid", "Export at most one motion vector per NxN pixel cell (0 = every one)", offsetof(AVCodecContext, mv_grid), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT16_MAX, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_AUDIO_PARAM | AV_OPT_FLAG_VIDEO_PARAM },
+{"mv_min_size", "Drop motion vectors shorter than this many pixels (0 = keep all)", offsetof(AVCodecContext, mv_min_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT16_MAX, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_AUDIO_PARAM | AV_OPT_FLAG_VIDEO_PARAM },
 {"cgop", "closed GOP", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_CLOSED_GOP }, INT_MIN, INT_MAX, V|E, .unit = "flags"},
 {"output_corrupt", "Output even potentially corrupted frames", 0, AV_OPT_TYPE_CONST, {.i64 = AV_CODEC_FLAG_OUTPUT_CORRUPT }, INT_MIN, INT_MAX, V|D, .unit = "flags"},
 {"flags2", NULL, OFFSET(flags2), AV_OPT_TYPE_FLAGS, {.i64 = DEFAULT}, 0, UINT_MAX, V|A|E|D|S, .unit = "flags2"},

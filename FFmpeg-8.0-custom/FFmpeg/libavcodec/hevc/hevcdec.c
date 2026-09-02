@@ -50,6 +50,7 @@
 #include "parse.h"
 #include "hevcdec.h"
 #include "hwaccel_internal.h"
+#include "mpegutils.h"
 #include "hwconfig.h"
 #include "internal.h"
 #include "profiles.h"
@@ -3598,6 +3599,10 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
         return AVERROR(ENOMEM);
     }
 
+    FFMvFilter flt;
+    ff_mv_filter_init(&flt, s->avctx, min_pu_width * min_pu_size,
+                      min_pu_height * min_pu_size);
+
     for (int y = 0; y < min_pu_height; y++) {
         for (int x = 0; x < min_pu_width; x++) {
             if (visited[y * min_pu_width + x])
@@ -3655,6 +3660,8 @@ int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
                 const int dst_x = src_x + (mvf->mv[dir].x >> 2);
                 const int dst_y = src_y + (mvf->mv[dir].y >> 2);
                 if (src_x == dst_x && src_y == dst_y) /* zero-size vector: no displacement, skip */
+                    continue;
+                if (!ff_mv_filter_keep(&flt, src_x, src_y, dst_x, dst_y, src_x, src_y)) /* mv_min_size / mv_grid */
                     continue;
 
                 av_assert0(num_mvs < alloc);

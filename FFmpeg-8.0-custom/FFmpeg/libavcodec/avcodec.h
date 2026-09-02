@@ -448,6 +448,31 @@ typedef struct AVCodecContext {
     int mv_l0_only;
 
     /**
+     * Custom: spatial thinning. Divide the picture into mv_grid x mv_grid pixel
+     * cells and export at most one motion vector per cell per picture - the
+     * first one the decoder reaches, among those surviving mv_min_size and the
+     * region filter. 0 disables it and exports every vector.
+     *
+     * This replaced an earlier "every Nth vector in decode order" filter, which
+     * sampled by the decoder's macroblock walk and so clustered arbitrarily.
+     * Cells give an evenly spread field instead, which is what a fixed camera
+     * wants: uniform coverage of the scene rather than a raster-order subset.
+     *
+     * Still an export-time filter: it shrinks output, it does not save decode
+     * time. Only skip_frame does that.
+     */
+    int mv_grid;
+
+    /**
+     * Custom: drop motion vectors whose displacement is shorter than this many
+     * whole pixels, i.e. keep only those with hypot(dst-src) >= mv_min_size.
+     * 0 disables the filter and exports every vector. Applied before
+     * mv_grid.
+     */
+    int mv_min_size;
+
+
+    /**
      * fourcc (LSB first, so "ABCD" -> ('D'<<24) + ('C'<<16) + ('B'<<8) + 'A').
      * This is used to work around some encoder bugs.
      * A demuxer should set this to what is stored in the field used to identify the codec.
