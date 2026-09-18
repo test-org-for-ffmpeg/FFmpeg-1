@@ -495,6 +495,30 @@ typedef struct AVCodecContext {
      */
     int mv_skip_every_nth;
 
+    /**
+     * Custom: the complement of mv_skip_every_nth - decode every Nth picture in
+     * decode order and skip all the others. 0 or 1 decodes every picture. IDR
+     * pictures are always decoded so the stream stays anchored.
+     *
+     * So 2 keeps half the pictures, 3 keeps a third, 30 keeps a thirtieth: the
+     * trim gets *harsher* as N rises, the opposite direction to
+     * mv_skip_every_nth. Between them the two options cover the whole range -
+     * skip_every_nth spans "drop half" down to "drop almost none", and this one
+     * spans "keep half" down to "keep almost none", which is where the large
+     * wins live and where skip_every_nth cannot reach.
+     *
+     * Same mechanism and the same caveats: a dropped picture never reaches the
+     * entropy decoder, so this genuinely saves time rather than filtering
+     * already-decoded output; and B slices using temporal direct mode read the
+     * collocated picture's motion field, so combine with skip_frame=bidir if
+     * that picture may have been dropped.
+     *
+     * Setting both is legal and they compose - a picture is decoded only if it
+     * survives both tests - but there is rarely a reason to, and the combined
+     * pattern is the intersection of two moduli rather than anything intuitive.
+     */
+    int mv_decode_every_nth;
+
 
     /**
      * fourcc (LSB first, so "ABCD" -> ('D'<<24) + ('C'<<16) + ('B'<<8) + 'A').

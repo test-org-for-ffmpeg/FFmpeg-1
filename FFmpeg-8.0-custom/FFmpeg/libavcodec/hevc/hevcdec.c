@@ -3815,12 +3815,18 @@ static int decode_slice(HEVCContext *s, unsigned nal_idx, GetBitContext *gb)
         return ret;
     }
 
-    /* Custom: temporal decimation - see mv_skip_every_nth in avcodec.h.
-     * Counted at the first slice of each picture; IRAP is always decoded. */
-    if (s->avctx->mv_skip_every_nth > 1 && s->sh.first_slice_in_pic_flag &&
-        !IS_IRAP(s)) {
+    /* Custom: temporal decimation - see mv_skip_every_nth and
+     * mv_decode_every_nth in avcodec.h. Counted at the first slice of each
+     * picture; IRAP is always decoded. One shared counter, for the reason
+     * spelled out at the H.264 site in h264_slice.c. */
+    if ((s->avctx->mv_skip_every_nth > 1 || s->avctx->mv_decode_every_nth > 1) &&
+        s->sh.first_slice_in_pic_flag && !IS_IRAP(s)) {
         int idx = s->mv_pic_index++;
-        if (idx % s->avctx->mv_skip_every_nth == 0)
+        if (s->avctx->mv_skip_every_nth > 1 &&
+            idx % s->avctx->mv_skip_every_nth == 0)
+            return 0;
+        if (s->avctx->mv_decode_every_nth > 1 &&
+            idx % s->avctx->mv_decode_every_nth != 0)
             return 0;
     }
 

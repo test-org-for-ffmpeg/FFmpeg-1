@@ -2204,13 +2204,28 @@ int ff_h264_queue_decode_slice(H264Context *h, const H2645NAL *nal)
     if (h->current_slice == 0 && !h->first_field) {
         /* Custom: temporal decimation. Counted once per picture in decode
          * order, here at the first slice of a new picture. IDR is always
-         * decoded so the stream keeps an anchor. Drops every Nth picture and
-         * keeps the rest, so larger N is a gentler trim; the dropped ones lose
-         * their CABAC bins entirely. */
-        if (h->avctx->mv_skip_every_nth > 1 &&
+         * decoded so the stream keeps an anchor; the dropped ones lose their
+         * CABAC bins entirely.
+         *
+         * Two opposite knobs share this one counter, and must keep sharing it:
+         * incrementing mv_pic_index twice for a picture would make the two
+         * options interfere when both are set, and would change what
+         * mv_skip_every_nth alone means the moment the other is non-zero.
+         *
+         *   mv_skip_every_nth    drop every Nth, keep the rest - larger N is
+         *                        GENTLER (2 drops half, 30 drops a thirtieth)
+         *   mv_decode_every_nth  keep every Nth, drop the rest  - larger N is
+         *                        HARSHER (2 keeps half, 30 keeps a thirtieth)
+         *
+         * A picture is decoded only if it survives both tests. */
+        if ((h->avctx->mv_skip_every_nth > 1 || h->avctx->mv_decode_every_nth > 1) &&
             h->nal_unit_type != H264_NAL_IDR_SLICE) {
             int idx = h->mv_pic_index++;
-            if (idx % h->avctx->mv_skip_every_nth == 0)
+            if (h->avctx->mv_skip_every_nth > 1 &&
+                idx % h->avctx->mv_skip_every_nth == 0)
+                return 0;
+            if (h->avctx->mv_decode_every_nth > 1 &&
+                idx % h->avctx->mv_decode_every_nth != 0)
                 return 0;
         }
         if (
