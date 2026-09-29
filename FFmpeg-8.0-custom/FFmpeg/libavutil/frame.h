@@ -268,6 +268,14 @@ enum AVFrameSideDataType {
      * Emitted when the decoder is run with dense_mb_signals=1.
      */
     AV_FRAME_DATA_H264_NZC_SUMS,
+
+    /**
+     * H.264 per-macroblock type, uint32_t[mb_w * mb_h] row-major.
+     * Raw MB_TYPE_* bitmask per MB; interpret with IS_INTRA/IS_SKIP/
+     * IS_INTER/IS_DIRECT macros from libavcodec/mpegutils.h. Emitted
+     * when the decoder is run with dense_mb_signals=1.
+     */
+    AV_FRAME_DATA_H264_MB_TYPE,
 };
 
 enum AVActiveFormatDescription {

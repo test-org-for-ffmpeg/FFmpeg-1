@@ -254,6 +254,21 @@ int ff_h264_field_end(H264Context *h, H264SliceContext *sl, int in_setup)
                 }
             }
         }
+
+        /* MB type per macroblock, raw MB_TYPE_* bitmask; consumers reduce
+         * to intra/inter/skip via IS_INTRA/IS_SKIP/IS_INTER macros. */
+        if (cur->mb_type) {
+            av_frame_remove_side_data(cur->f, AV_FRAME_DATA_H264_MB_TYPE);
+            AVFrameSideData *sd_mbt =
+                av_frame_new_side_data(cur->f, AV_FRAME_DATA_H264_MB_TYPE,
+                                       mb_n * sizeof(uint32_t));
+            if (sd_mbt) {
+                for (int y = 0; y < mb_h; y++)
+                    memcpy((uint32_t *)sd_mbt->data + y * mb_w,
+                           cur->mb_type + y * mb_st,
+                           mb_w * sizeof(uint32_t));
+            }
+        }
     }
 
     if (!in_setup && !h->droppable)
