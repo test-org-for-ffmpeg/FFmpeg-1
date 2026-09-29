@@ -440,6 +440,17 @@ typedef struct AVCodecContext {
     const struct AVCodec  *codec;
     enum AVCodecID     codec_id; /* see AV_CODEC_ID_xxx */
     int motion_vectors_only;
+    /**
+     * Dense compressed-domain feature extraction.
+     * When set, the decoder skips pixel reconstruction (same fast path as
+     * motion_vectors_only) but emits the *full* AV_FRAME_DATA_MOTION_VECTORS
+     * (AVMotionVector[], not the compact form) so downstream ML consumers
+     * see the same MV distribution as stock FFmpeg. Additional per-MB side
+     * data (MB_TYPE, NZC sums, ...) will be attached on the same path.
+     * Mutually reinforcing with motion_vectors_only: setting this also
+     * forces motion_vectors_only=1 internally.
+     */
+    int dense_mb_signals;
 
     /**
      * fourcc (LSB first, so "ABCD" -> ('D'<<24) + ('C'<<16) + ('B'<<8) + 'A').

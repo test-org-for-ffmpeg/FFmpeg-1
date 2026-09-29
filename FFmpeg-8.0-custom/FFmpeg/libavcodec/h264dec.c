@@ -390,6 +390,11 @@ static av_cold int h264_decode_init(AVCodecContext *avctx)
     H264Context *h = avctx->priv_data;
     int ret;
 
+    /* dense_mb_signals rides the same fast path as motion_vectors_only
+     * (no pixel reconstruction); MV-emission width is chosen in mpegutils.c. */
+    if (avctx->dense_mb_signals)
+        avctx->motion_vectors_only = 1;
+
     ret = h264_init_context(avctx, h);
     if (ret < 0)
         return ret;

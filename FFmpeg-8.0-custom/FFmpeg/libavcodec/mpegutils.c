@@ -329,7 +329,10 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
         const int mv_stride      = (mb_width << mv_sample_log2) + !is_h264;
         int mb_x, mb_y, mbcount = 0;
         const int max_mvs        = mb_width * mb_height * 2 * 4;
-        const int compact        = avctx->motion_vectors_only;
+        /* Emit compact MVs only when the caller explicitly asked for the
+         * MV-only fast path. dense_mb_signals shares that fast path but wants
+         * the full AVMotionVector[] so ML consumers see the stock distribution. */
+        const int compact        = avctx->motion_vectors_only && !avctx->dense_mb_signals;
 
         // --- Optimization 1: allocate directly into side data, skip temp buffer + memcpy ---
         // Compact path uses AVMotionVectorCompact (8 B) instead of AVMotionVector (~40 B)
