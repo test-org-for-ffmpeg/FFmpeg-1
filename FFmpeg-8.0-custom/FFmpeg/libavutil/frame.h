@@ -261,6 +261,13 @@ enum AVFrameSideDataType {
      * libavutil/motion_vector.h.
      */
     AV_FRAME_DATA_MOTION_VECTORS_COMPACT,
+
+    /**
+     * H.264 per-macroblock non-zero-coefficient sum, uint16_t[mb_w * mb_h]
+     * row-major. Each element is the sum of the 48 4x4 NZC counts for its MB.
+     * Emitted when the decoder is run with dense_mb_signals=1.
+     */
+    AV_FRAME_DATA_H264_NZC_SUMS,
 };
 
 enum AVActiveFormatDescription {

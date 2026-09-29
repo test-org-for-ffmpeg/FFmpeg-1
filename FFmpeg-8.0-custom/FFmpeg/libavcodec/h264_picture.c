@@ -227,6 +227,35 @@ int ff_h264_field_end(H264Context *h, H264SliceContext *sl, int in_setup)
         }
     }
 
+    /* Dense per-MB signal export: NZC sums (one uint16 per MB, sum of the 48
+     * 4x4 non-zero-coefficient counts). Populated during entropy decode; no
+     * pixel reconstruction required. Skipped on I-frames to match MVs
+     * (mpegutils.c emits an empty MV array on intras — a symmetric no-op). */
+    if (!in_setup && avctx->dense_mb_signals && h->non_zero_count
+        && cur->f->pict_type != AV_PICTURE_TYPE_I) {
+        const int mb_w  = h->mb_width;
+        const int mb_h  = h->mb_height;
+        const int mb_st = h->mb_stride;
+        const int mb_n  = mb_w * mb_h;
+
+        av_frame_remove_side_data(cur->f, AV_FRAME_DATA_H264_NZC_SUMS);
+        AVFrameSideData *sd_sums =
+            av_frame_new_side_data(cur->f, AV_FRAME_DATA_H264_NZC_SUMS,
+                                   mb_n * sizeof(uint16_t));
+        if (sd_sums) {
+            for (int y = 0; y < mb_h; y++) {
+                uint16_t *row = (uint16_t *)sd_sums->data + y * mb_w;
+                for (int x = 0; x < mb_w; x++) {
+                    const uint8_t *nz = h->non_zero_count[y * mb_st + x];
+                    uint16_t s = 0;
+                    for (int k = 0; k < 48; k++)
+                        s += nz[k];
+                    row[x] = s;
+                }
+            }
+        }
+    }
+
     if (!in_setup && !h->droppable)
         ff_thread_report_progress(&cur->tf, INT_MAX,
                                   h->picture_structure == PICT_BOTTOM_FIELD);
