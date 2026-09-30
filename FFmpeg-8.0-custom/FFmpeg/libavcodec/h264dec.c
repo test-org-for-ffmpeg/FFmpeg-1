@@ -152,6 +152,7 @@ void ff_h264_free_tables(H264Context *h)
     av_freep(&h->mvd_table[1]);
     av_freep(&h->direct_table);
     av_freep(&h->non_zero_count);
+    av_freep(&h->nzc_all);
     av_freep(&h->slice_table_base);
     h->slice_table = NULL;
     av_freep(&h->list_counts);
@@ -196,6 +197,7 @@ int ff_h264_alloc_tables(H264Context *h)
 
     if (!FF_ALLOCZ_TYPED_ARRAY(h->intra4x4_pred_mode,     row_mb_num * 8)  ||
         !FF_ALLOCZ_TYPED_ARRAY(h->non_zero_count,         big_mb_num)      ||
+        !FF_ALLOCZ_TYPED_ARRAY(h->nzc_all,                big_mb_num)      ||
         !FF_ALLOCZ_TYPED_ARRAY(h->slice_table_base,       st_size)         ||
         !FF_ALLOCZ_TYPED_ARRAY(h->cbp_table,              big_mb_num)      ||
         !FF_ALLOCZ_TYPED_ARRAY(h->chroma_pred_mode_table, big_mb_num)      ||

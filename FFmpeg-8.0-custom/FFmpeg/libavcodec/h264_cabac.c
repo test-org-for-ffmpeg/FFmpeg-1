@@ -1703,6 +1703,7 @@ decode_cabac_residual_internal(const H264Context *h, H264SliceContext *sl,
 #endif
     }
     av_assert2(coeff_count > 0);
+    sl->mb_nzc += coeff_count;
 
     if( is_dc ) {
         if( cat == 3 )
@@ -1985,6 +1986,7 @@ decode_cabac_residual_internal_skip(const H264Context *h, H264SliceContext *sl,
         }
     }
     av_assert2(coeff_count > 0);
+    sl->mb_nzc += coeff_count;
 
     // Always keep these writes; they are part of the decoder’s control state.
     if( is_dc ) {

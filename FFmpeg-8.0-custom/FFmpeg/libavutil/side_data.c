@@ -56,6 +56,7 @@ static const AVSideDataDescriptor sd_props[] = {
     [AV_FRAME_DATA_SEI_UNREGISTERED]            = { "H.26[45] User Data Unregistered SEI message",  AV_SIDE_DATA_PROP_MULTI },
     [AV_FRAME_DATA_VIDEO_HINT]                  = { "Encoding video hint",                          AV_SIDE_DATA_PROP_SIZE_DEPENDENT },
     [AV_FRAME_DATA_3D_REFERENCE_DISPLAYS]       = { "3D Reference Displays Information",            AV_SIDE_DATA_PROP_GLOBAL },
+    [AV_FRAME_DATA_H264_NZC_ALL]                = { "H.264 per-macroblock non-zero coefficient counts" },
 };
 
 const AVSideDataDescriptor *av_frame_side_data_desc(enum AVFrameSideDataType type)

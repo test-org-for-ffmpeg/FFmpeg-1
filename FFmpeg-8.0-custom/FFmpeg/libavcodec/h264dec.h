@@ -296,6 +296,13 @@ typedef struct H264SliceContext {
     DECLARE_ALIGNED(8, uint8_t, non_zero_count_cache)[15 * 8];
 
     /**
+     * Number of non-zero coefficients decoded so far for the current
+     * macroblock, every coded block counted once (4x4, 8x8, luma DC and
+     * chroma DC). Exported as AV_FRAME_DATA_H264_NZC_ALL.
+     */
+    int mb_nzc;
+
+    /**
      * Motion vector cache.
      */
     DECLARE_ALIGNED(16, int16_t, mv_cache)[2][5 * 8][2];
@@ -394,6 +401,13 @@ typedef struct H264Context {
     H264PredContext hpc;
 
     uint8_t (*non_zero_count)[48];
+
+    /**
+     * Per-macroblock non-zero coefficient count of the current picture,
+     * indexed by mb_xy (sl->mb_nzc stored after each MB). Exported as
+     * AV_FRAME_DATA_H264_NZC_ALL under dense_mb_signals.
+     */
+    uint16_t *nzc_all;
 
 #define LIST_NOT_USED -1 // FIXME rename?
 

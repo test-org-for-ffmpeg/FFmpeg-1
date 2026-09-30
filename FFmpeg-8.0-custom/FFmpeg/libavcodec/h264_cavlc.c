@@ -426,6 +426,7 @@ int decode_residual(const H264Context *h, H264SliceContext *sl,
                                COEFF_TOKEN_VLC_BITS, 2);
     }
     total_coeff = coeff_token >> 2;
+    sl->mb_nzc += total_coeff;
     sl->non_zero_count_cache[scan8[n]] = total_coeff;
 
     //FIXME set last_non_zero?
@@ -745,6 +746,7 @@ int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
                                COEFF_TOKEN_VLC_BITS, 2);
     }
     total_coeff = coeff_token >> 2;
+    sl->mb_nzc += total_coeff;
     sl->non_zero_count_cache[scan8[n]] = total_coeff;
 
     if(total_coeff==0)

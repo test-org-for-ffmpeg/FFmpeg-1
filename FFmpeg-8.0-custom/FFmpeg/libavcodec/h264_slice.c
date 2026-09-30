@@ -537,6 +537,10 @@ static int h264_frame_start(H264Context *h)
     release_unused_pictures(h, 1);
     h->cur_pic_ptr = NULL;
 
+    /* MBs that are never decoded in this picture (e.g. after an error) read as 0 */
+    if (h->nzc_all)
+        memset(h->nzc_all, 0, h->mb_stride * (h->mb_height + 1) * sizeof(*h->nzc_all));
+
     i = find_unused_picture(h);
     if (i < 0) {
         av_log(h->avctx, AV_LOG_ERROR, "no frame buffer available\n");
@@ -2667,7 +2671,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 return AVERROR_INVALIDDATA;
             }
 
+            sl->mb_nzc = 0;
             ret = ff_h264_decode_mb_cabac(h, sl);
+            if (ret >= 0)
+                h->nzc_all[sl->mb_xy] = sl->mb_nzc;
 
             // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
@@ -2678,7 +2685,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
 
+                sl->mb_nzc = 0;
                 ret = ff_h264_decode_mb_cabac(h, sl);
+                if (ret >= 0)
+                    h->nzc_all[sl->mb_xy] = sl->mb_nzc;
                 // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
                     if (!h->avctx->motion_vectors_only)
@@ -2747,7 +2757,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 return AVERROR_INVALIDDATA;
             }
 
+            sl->mb_nzc = 0;
             ret = ff_h264_decode_mb_cavlc(h, sl);
+            if (ret >= 0)
+                h->nzc_all[sl->mb_xy] = sl->mb_nzc;
 
             // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
@@ -2757,7 +2770,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
+                sl->mb_nzc = 0;
                 ret = ff_h264_decode_mb_cavlc(h, sl);
+                if (ret >= 0)
+                    h->nzc_all[sl->mb_xy] = sl->mb_nzc;
 
                 // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
