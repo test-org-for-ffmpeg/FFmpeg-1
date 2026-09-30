@@ -1837,6 +1837,7 @@ EXAMPLE_LIST="
     decode_filter_video_example
     decode_video_example
     demux_decode_example
+    dense_signals_example
     encode_audio_example
     encode_video_example
     extract_mvs_example
@@ -4098,6 +4099,7 @@ decode_filter_audio_example_deps="avfilter avcodec avformat avutil"
 decode_filter_video_example_deps="avfilter avcodec avformat avutil"
 decode_video_example_deps="avcodec avutil"
 demux_decode_example_deps="avcodec avformat avutil"
+dense_signals_example_deps="avcodec avformat avutil"
 encode_audio_example_deps="avcodec avutil"
 encode_video_example_deps="avcodec avutil"
 extract_mvs_example_deps="avcodec avformat avutil"

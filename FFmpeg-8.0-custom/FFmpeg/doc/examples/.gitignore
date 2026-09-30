@@ -3,6 +3,7 @@
 /decode_audio
 /decode_video
 /demuxing_decoding
+/dense_signals
 /encode_audio
 /encode_video
 /extract_mvs
