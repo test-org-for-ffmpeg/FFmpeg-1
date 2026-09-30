@@ -269,6 +269,21 @@ int ff_h264_field_end(H264Context *h, H264SliceContext *sl, int in_setup)
                            mb_w * sizeof(uint32_t));
             }
         }
+
+        /* Non-zero coefficient count per macroblock, counted while the
+         * coefficients are entropy decoded (every coded block once). */
+        if (h->nzc_all) {
+            av_frame_remove_side_data(cur->f, AV_FRAME_DATA_H264_NZC_ALL);
+            AVFrameSideData *sd_all =
+                av_frame_new_side_data(cur->f, AV_FRAME_DATA_H264_NZC_ALL,
+                                       mb_n * sizeof(uint16_t));
+            if (sd_all) {
+                for (int y = 0; y < mb_h; y++)
+                    memcpy((uint16_t *)sd_all->data + y * mb_w,
+                           h->nzc_all + y * mb_st,
+                           mb_w * sizeof(uint16_t));
+            }
+        }
     }
 
     if (!in_setup && !h->droppable)

@@ -276,6 +276,16 @@ enum AVFrameSideDataType {
      * when the decoder is run with dense_mb_signals=1.
      */
     AV_FRAME_DATA_H264_MB_TYPE,
+
+    /**
+     * H.264 per-macroblock non-zero coefficient count, uint16_t[mb_w * mb_h]
+     * row-major. Each element is the number of non-zero transform coefficients
+     * decoded for its MB, counting every coded block once (4x4, 8x8, luma DC
+     * and chroma DC); skipped MBs are 0. Unlike AV_FRAME_DATA_H264_NZC_SUMS, an
+     * 8x8 transform block is not counted 4 times and DC blocks are included.
+     * Emitted on P and B frames when the decoder is run with dense_mb_signals=1.
+     */
+    AV_FRAME_DATA_H264_NZC_ALL,
 };
 
 enum AVActiveFormatDescription {
