@@ -158,7 +158,22 @@ static HEVCFrame *alloc_frame(HEVCContext *s, HEVCLayerContext *l)
             }
         }
 
-        ret = ff_thread_get_buffer(s->avctx, frame->f, AV_GET_BUFFER_FLAG_REF);
+        if (s->motion_vectors_only) {
+            // Allocate minimal pixel buffers — MV extraction never writes pixels.
+            // CTB-aligned minimum (64x64) avoids alignment asserts.
+            int orig_w = s->avctx->width;
+            int orig_h = s->avctx->height;
+            s->avctx->width  = 64;
+            s->avctx->height = 64;
+            frame->f->width  = 64;
+            frame->f->height = 64;
+            frame->f->format = AV_PIX_FMT_YUV420P;
+            ret = ff_thread_get_buffer(s->avctx, frame->f, AV_GET_BUFFER_FLAG_REF);
+            s->avctx->width  = orig_w;
+            s->avctx->height = orig_h;
+        } else {
+            ret = ff_thread_get_buffer(s->avctx, frame->f, AV_GET_BUFFER_FLAG_REF);
+        }
         if (ret < 0)
             goto fail;
 
@@ -308,15 +323,36 @@ int ff_hevc_output_frames(HEVCContext *s,
             int output = !discard && (layers_active_output & (1 << min_layer));
 
             if (output) {
+                /* Custom (MV-only fork): when motion vectors are exported, the
+                 * export needs the picture fully decoded — but we are inside
+                 * hevc_frame_start(), before ff_thread_finish_setup(), so
+                 * waiting here would block setup and serialise frame threading
+                 * (measured: 16 threads, zero speedup). Record the picture and
+                 * let ff_hevc_flush_deferred_output() do the wait, the export
+                 * and the fifo write once setup has been released. We take our
+                 * own refs so the unref below is free to drop the DPB slot.
+                 * The fifo write must follow the export because
+                 * av_container_fifo_write() snapshots the side-data list. */
                 if (s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_MVS) {
-                    ret = ff_hevc_export_motion_vectors(s, frame);
-                    if (ret < 0)
-                        return ret;
+                    if (s->nb_deferred_out >= HEVC_DEFERRED_OUTPUT_MAX) {
+                        ret = ff_hevc_flush_deferred_output(s);
+                        if (ret < 0)
+                            return ret;
+                    }
+                    HEVCDeferredOutput *d = &s->deferred_out[s->nb_deferred_out++];
+                    memset(d, 0, sizeof(*d));
+                    ff_progress_frame_ref(&d->tf, &frame->tf);
+                    d->f       = f;
+                    d->pps     = av_refstruct_ref_c(frame->pps);
+                    d->tab_mvf = av_refstruct_ref(frame->tab_mvf);
+                    d->corrupt = !!(frame->flags & HEVC_FRAME_FLAG_CORRUPT);
+                    d->poc     = frame->poc;
+                } else {
+                    if (frame->flags & HEVC_FRAME_FLAG_CORRUPT)
+                        f->flags |= AV_FRAME_FLAG_CORRUPT;
+                    f->pkt_dts = s->pkt_dts;
+                    ret = av_container_fifo_write(s->output_fifo, f, AV_CONTAINER_FIFO_FLAG_REF);
                 }
-                if (frame->flags & HEVC_FRAME_FLAG_CORRUPT)
-                    f->flags |= AV_FRAME_FLAG_CORRUPT;
-                f->pkt_dts = s->pkt_dts;
-                ret = av_container_fifo_write(s->output_fifo, f, AV_CONTAINER_FIFO_FLAG_REF);
             }
             ff_hevc_unref_frame(frame, HEVC_FRAME_FLAG_OUTPUT);
             if (ret < 0)
@@ -328,6 +364,63 @@ int ff_hevc_output_frames(HEVCContext *s,
         }
         return 0;
     }
+}
+
+/* Custom (MV-only fork): drain the deferred-output queue recorded by
+ * ff_hevc_output_frames(). Must be called after ff_thread_finish_setup() (so
+ * the waits below cannot block another worker's setup) and before the decoder
+ * returns frames to the caller. Entries are processed in bump order, which is
+ * the output order the fifo expects. */
+/* Custom (MV-only fork): drop deferred entries without exporting them, for
+ * seek/flush and close. Safe to call with an empty queue. */
+void ff_hevc_discard_deferred_output(HEVCContext *s)
+{
+    for (int i = 0; i < s->nb_deferred_out; i++) {
+        HEVCDeferredOutput *d = &s->deferred_out[i];
+        av_refstruct_unref(&d->tab_mvf);
+        av_refstruct_unref(&d->pps);
+        ff_progress_frame_unref(&d->tf);
+    }
+    s->nb_deferred_out = 0;
+}
+
+int ff_hevc_flush_deferred_output(HEVCContext *s)
+{
+    int ret = 0;
+
+    for (int i = 0; i < s->nb_deferred_out; i++) {
+        HEVCDeferredOutput *d = &s->deferred_out[i];
+
+        if (ret >= 0) {
+            HEVCFrame tmp = { 0 };
+
+            /* The picture may still be decoding in another worker; this is the
+             * wait that used to sit in the setup path. */
+            ff_progress_frame_await(&d->tf, INT_MAX);
+
+            /* ff_hevc_export_motion_vectors() reads exactly these three
+             * fields, so a stack HEVCFrame carrying our refs is enough. */
+            tmp.f       = d->tf.f;
+            tmp.pps     = d->pps;
+            tmp.tab_mvf = d->tab_mvf;
+            ret = ff_hevc_export_motion_vectors(s, &tmp);
+
+            if (ret >= 0) {
+                if (d->corrupt)
+                    d->f->flags |= AV_FRAME_FLAG_CORRUPT;
+                d->f->pkt_dts = s->pkt_dts;
+                ret = av_container_fifo_write(s->output_fifo, d->f,
+                                              AV_CONTAINER_FIFO_FLAG_REF);
+            }
+        }
+
+        av_refstruct_unref(&d->tab_mvf);
+        av_refstruct_unref(&d->pps);
+        ff_progress_frame_unref(&d->tf);
+    }
+    s->nb_deferred_out = 0;
+
+    return ret;
 }
 
 static int init_slice_rpl(HEVCContext *s)

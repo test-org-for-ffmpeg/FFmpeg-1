@@ -439,6 +439,60 @@ typedef struct AVCodecContext {
     enum AVMediaType codec_type; /* see AVMEDIA_TYPE_xxx */
     const struct AVCodec  *codec;
     enum AVCodecID     codec_id; /* see AV_CODEC_ID_xxx */
+    int motion_vectors_only;
+    /**
+     * Custom: when set, MV export emits only list-0 (source < 0) motion vectors
+     * and drops list-1 (source > 0). P slices are list-0 only (unaffected); B
+     * slices keep only their backward/list-0 vectors; I slices stay empty.
+     */
+    int mv_l0_only;
+
+    /**
+     * Custom: skip every Nth picture, counted in decode order, dropping it
+     * before any entropy decoding happens and decoding all the others. 0 or 1
+     * decodes every picture. IDR pictures are always decoded so the stream
+     * stays anchored.
+     *
+     * So 2 drops half the pictures, 3 drops a third, 4 a quarter: the trim gets
+     * *gentler* as N rises. That is deliberate. A skipped picture cannot be
+     * reconstructed afterwards - interpolating one from its decoded neighbours
+     * measured a median error larger than the median motion itself - so the
+     * useful range here is a mild trim, not aggressive decimation.
+     *
+     * This genuinely reduces work: a skipped picture has none of its CABAC
+     * bins consumed.
+     *
+     * Safe for I/P motion vectors, which H.264 predicts from spatial
+     * neighbours within the same slice. B slices using temporal direct mode
+     * read the collocated picture's motion field, so if that picture was
+     * skipped their vectors are unreliable - combine with skip_frame=bidir.
+     */
+    int mv_skip_every_nth;
+
+    /**
+     * Custom: the complement of mv_skip_every_nth - decode every Nth picture in
+     * decode order and skip all the others. 0 or 1 decodes every picture. IDR
+     * pictures are always decoded so the stream stays anchored.
+     *
+     * So 2 keeps half the pictures, 3 keeps a third, 30 keeps a thirtieth: the
+     * trim gets *harsher* as N rises, the opposite direction to
+     * mv_skip_every_nth. Between them the two options cover the whole range -
+     * skip_every_nth spans "drop half" down to "drop almost none", and this one
+     * spans "keep half" down to "keep almost none", which is where the large
+     * wins live and where skip_every_nth cannot reach.
+     *
+     * Same mechanism and the same caveats: a dropped picture never reaches the
+     * entropy decoder, so this genuinely saves time rather than filtering
+     * already-decoded output; and B slices using temporal direct mode read the
+     * collocated picture's motion field, so combine with skip_frame=bidir if
+     * that picture may have been dropped.
+     *
+     * Setting both is legal and they compose - a picture is decoded only if it
+     * survives both tests - but there is rarely a reason to, and the combined
+     * pattern is the intersection of two moduli rather than anything intuitive.
+     */
+    int mv_decode_every_nth;
+
 
     /**
      * fourcc (LSB first, so "ABCD" -> ('D'<<24) + ('C'<<16) + ('B'<<8) + 'A').

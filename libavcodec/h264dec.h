@@ -449,6 +449,9 @@ typedef struct H264Context {
     int nal_ref_idc;
     int nal_unit_type;
 
+    /* Custom: pictures seen in decode order, for mv_skip_every_nth. */
+    int mv_pic_index;
+
     int has_slice;          ///< slice NAL is found in the packet, set by decode_nal_units, its state does not need to be preserved outside h264_decode_frame()
 
     /**
@@ -583,6 +586,31 @@ typedef struct H264Context {
 } H264Context;
 
 extern const uint16_t ff_h264_mb_sizes[4];
+
+
+/**
+ * CAVCL residual decoding functions - normal variants
+ */
+int decode_residual(const H264Context *h, H264SliceContext *sl,
+                           GetBitContext *gb, int16_t *block, int n,
+                           const uint8_t *scantable, const uint32_t *qmul,
+                           int max_coeff);
+
+int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
+                         GetBitContext *gb, const uint8_t *scan,
+                         const uint8_t *scan8x8, int pixel_shift,
+                         int mb_type, int cbp, int p);
+
+/**
+ * CAVCL residual decoding functions - skip variants for motion_vectors_only mode
+ */
+int decode_residual_skip(const H264Context *h, H264SliceContext *sl,
+                                GetBitContext *gb, int n,
+                                int max_coeff);
+
+int decode_luma_residual_skip(const H264Context *h, H264SliceContext *sl,
+                              GetBitContext *gb,
+                              int mb_type, int cbp, int p);
 
 /**
  * Reconstruct bitstream slice_type.

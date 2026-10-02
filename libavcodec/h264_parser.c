@@ -596,6 +596,14 @@ static int h264_parse(AVCodecParserContext *s,
 
     if (!p->got_first) {
         p->got_first = 1;
+
+        // Initialize DSP here where we have access to avctx
+        int motion_vectors_only = 0;
+        if (avctx) 
+            motion_vectors_only = avctx->motion_vectors_only;
+
+        ff_h264dsp_init(&p->h264dsp, 8, 1, motion_vectors_only);
+        
         if (avctx->extradata_size) {
             ff_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
                                      &p->ps, &p->is_avc, &p->nal_length_size,
@@ -684,7 +692,9 @@ static av_cold int init(AVCodecParserContext *s)
 
     p->reference_dts = AV_NOPTS_VALUE;
     p->last_frame_num = INT_MAX;
-    ff_h264dsp_init(&p->h264dsp, 8, 1);
+    
+    // Note: try not to init here (initialization starts in h264_parse)
+    //ff_h264dsp_init(&p->h264dsp, 8, 1);
     return 0;
 }
 

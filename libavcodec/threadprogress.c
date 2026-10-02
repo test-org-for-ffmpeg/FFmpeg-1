@@ -33,6 +33,7 @@ DEFINE_OFFSET_ARRAY(ThreadProgress, thread_progress, init,
 av_cold int ff_thread_progress_init(ThreadProgress *pro, int init_mode)
 {
     atomic_init(&pro->progress, init_mode ? -1 : INT_MAX);
+    atomic_init(&pro->waiters, 0);
 #if HAVE_THREADS
     if (init_mode)
         return ff_pthread_init(pro, thread_progress_offsets);
@@ -55,8 +56,18 @@ void ff_thread_progress_report(ThreadProgress *pro, int n)
     if (atomic_load_explicit(&pro->progress, memory_order_relaxed) >= n)
         return;
 
+    /* Custom (MV-only fork): publish, then check for sleepers. seq_cst on this
+     * store and on the waiter-count load (and on the waiter's increment +
+     * re-check below) means one side always observes the other: either we see
+     * the waiter's increment and broadcast, or its re-check under the mutex
+     * sees this store and it never sleeps. Same reasoning and the same
+     * measured motivation as ff_thread_report_progress() in pthread_frame.c. */
+    atomic_store_explicit(&pro->progress, n, memory_order_seq_cst);
+
+    if (!atomic_load_explicit(&pro->waiters, memory_order_seq_cst))
+        return;
+
     ff_mutex_lock(&pro->progress_mutex);
-    atomic_store_explicit(&pro->progress, n, memory_order_release);
     ff_cond_broadcast(&pro->progress_cond);
     ff_mutex_unlock(&pro->progress_mutex);
 }
@@ -71,8 +82,12 @@ void ff_thread_progress_await(const ThreadProgress *pro_c, int n)
     if (atomic_load_explicit(&pro->progress, memory_order_acquire) >= n)
         return;
 
+    /* Custom (MV-only fork): register before re-checking progress; pairs with
+     * the reporter's store-then-load above. */
+    atomic_fetch_add_explicit(&pro->waiters, 1, memory_order_seq_cst);
     ff_mutex_lock(&pro->progress_mutex);
     while (atomic_load_explicit(&pro->progress, memory_order_relaxed) < n)
         ff_cond_wait(&pro->progress_cond, &pro->progress_mutex);
     ff_mutex_unlock(&pro->progress_mutex);
+    atomic_fetch_sub_explicit(&pro->waiters, 1, memory_order_seq_cst);
 }

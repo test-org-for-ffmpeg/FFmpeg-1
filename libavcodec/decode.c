@@ -680,8 +680,15 @@ static int decode_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
 
         /* the only case where decode data is not set should be decoders
          * that do not call ff_get_buffer() */
-        av_assert0(frame->private_ref ||
-                   !(avctx->codec->capabilities & AV_CODEC_CAP_DR1));
+        /* Custom (MV-only fork): H.264 allocates its stub pictures through
+         * ff_thread_get_ext_buffer() with dimensions temporarily forced to
+         * 16x16 (alloc_picture, h264_slice.c), and frames that never went
+         * through the normal get_buffer path can reach here without
+         * private_ref. The assert asks "did this DR1 decoder allocate through
+         * the framework"; in this mode the answer is legitimately no. */
+        if (!avctx->motion_vectors_only)
+            av_assert0(frame->private_ref ||
+                    !(avctx->codec->capabilities & AV_CODEC_CAP_DR1));
 
         if (frame->private_ref) {
             FrameDecodeData *fdd = frame->private_ref;

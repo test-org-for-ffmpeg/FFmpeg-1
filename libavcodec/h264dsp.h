@@ -117,8 +117,13 @@ typedef struct H264DSPContext {
     int (*startcode_find_candidate)(const uint8_t *buf, int size);
 } H264DSPContext;
 
+/* Custom (MV-only fork): `motion_vectors_only` != 0 installs no-op stubs for
+ * every IDCT, dequant, loop-filter and weight entry (h264dsp.c) instead of the C/SIMD kernels, and
+ * skips the arch-specific init that would overwrite them. Only the generic
+ * table is stubbed — startcode_find_candidate stays real, the bitstream still
+ * has to be scanned. Callers other than h264/svq3 pass 0. */
 void ff_h264dsp_init(H264DSPContext *c, const int bit_depth,
-                     const int chroma_format_idc);
+                     const int chroma_format_idc, const int motion_vectors_only);
 void ff_h264dsp_init_aarch64(H264DSPContext *c, const int bit_depth,
                              const int chroma_format_idc);
 void ff_h264dsp_init_arm(H264DSPContext *c, const int bit_depth,

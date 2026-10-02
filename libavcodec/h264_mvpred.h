@@ -929,6 +929,95 @@ static void fill_decode_caches(const H264Context *h, H264SliceContext *sl, int m
 }
 
 /**
+ * Minimal replacement for fill_decode_neighbors()+fill_decode_caches() at the
+ * B_SKIP/spatial-direct call site in decode_mb_skip(). pred_spatial_direct_motion()
+ * (the only consumer for a whole-MB, non-8x8 direct block) reads exactly one
+ * left/top/topright/topleft ref_cache+mv_cache position per list — never the
+ * full 4-wide top row fill_decode_caches() populates via AV_COPY128, and
+ * never the nnz/cbp/intra-availability bookkeeping (already IS_SKIP()-gated
+ * off in the general function) or mvd_cache/direct_cache fill (already
+ * skipped by the MB_TYPE_SKIP|MB_TYPE_DIRECT2 `continue` in the general
+ * function, for non-MBAFF content). Only handles the non-MBAFF case — MBAFF
+ * has its own field/frame remapping this function doesn't replicate, so the
+ * call site falls back to the general-purpose functions for that case.
+ */
+static void fill_decode_neighbors_caches_bskip_direct(const H264Context *h,
+                                                       H264SliceContext *sl,
+                                                       int mb_type)
+{
+    int topleft_xy, top_xy, topright_xy, left_xy[LEFT_MBS];
+    int topleft_type, top_type, topright_type, left_type[LEFT_MBS];
+    const uint8_t *left_block;
+    const int b_stride = h->b_stride;
+    int list;
+
+    fill_decode_neighbors(h, sl, mb_type);
+
+    topleft_xy      = sl->topleft_mb_xy;
+    top_xy          = sl->top_mb_xy;
+    topright_xy     = sl->topright_mb_xy;
+    left_xy[LTOP]   = sl->left_mb_xy[LTOP];
+    left_xy[LBOT]   = sl->left_mb_xy[LBOT];
+    topleft_type    = sl->topleft_type;
+    top_type        = sl->top_type;
+    topright_type   = sl->topright_type;
+    left_type[LTOP] = sl->left_type[LTOP];
+    left_type[LBOT] = sl->left_type[LBOT];
+    left_block      = sl->left_block;
+
+    for (list = 0; list < sl->list_count; list++) {
+        int8_t *ref_cache      = &sl->ref_cache[list][scan8[0]];
+        const int8_t *ref      = h->cur_pic.ref_index[list];
+        int16_t(*mv_cache)[2]  = &sl->mv_cache[list][scan8[0]];
+        const int16_t(*mv)[2]  = h->cur_pic.motion_val[list];
+        if (!USES_LIST(mb_type, list))
+            continue;
+
+        if (USES_LIST(left_type[LTOP], list)) {
+            const int b_xy  = h->mb2b_xy[left_xy[LTOP]] + 3;
+            const int b8_xy = 4 * left_xy[LTOP] + 1;
+            AV_COPY32(mv_cache[-1], mv[b_xy + b_stride * left_block[0]]);
+            ref_cache[-1] = ref[b8_xy + (left_block[0] & ~1)];
+        } else {
+            AV_ZERO32(mv_cache[-1]);
+            ref_cache[-1] = left_type[LTOP] ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+
+        if (USES_LIST(top_type, list)) {
+            const int b_xy = h->mb2b_xy[top_xy] + 3 * b_stride;
+            AV_COPY32(mv_cache[-1 * 8], mv[b_xy]);
+            ref_cache[-1 * 8] = ref[4 * top_xy + 2];
+        } else {
+            AV_ZERO32(mv_cache[-1 * 8]);
+            ref_cache[-1 * 8] = top_type ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+
+        if (USES_LIST(topright_type, list)) {
+            const int b_xy = h->mb2b_xy[topright_xy] + 3 * b_stride;
+            AV_COPY32(mv_cache[4 - 1 * 8], mv[b_xy]);
+            ref_cache[4 - 1 * 8] = ref[4 * topright_xy + 2];
+        } else {
+            AV_ZERO32(mv_cache[4 - 1 * 8]);
+            ref_cache[4 - 1 * 8] = topright_type ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+
+        /* pred_spatial_direct_motion() only reads topleft when topright's ref
+         * is exactly PART_NOT_AVAILABLE; always populating it (rather than
+         * replicating that exact condition here) is cheap and strictly safer. */
+        if (USES_LIST(topleft_type, list)) {
+            const int b_xy  = h->mb2b_xy[topleft_xy] + 3 + b_stride +
+                              (sl->topleft_partition & 2 * b_stride);
+            const int b8_xy = 4 * topleft_xy + 1 + (sl->topleft_partition & 2);
+            AV_COPY32(mv_cache[-1 - 1 * 8], mv[b_xy]);
+            ref_cache[-1 - 1 * 8] = ref[b8_xy];
+        } else {
+            AV_ZERO32(mv_cache[-1 - 1 * 8]);
+            ref_cache[-1 - 1 * 8] = topleft_type ? LIST_NOT_USED : PART_NOT_AVAILABLE;
+        }
+    }
+}
+
+/**
  * decodes a P_SKIP or B_SKIP macroblock
  */
 static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
@@ -945,8 +1034,14 @@ static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
         // just for fill_caches. pred_direct_motion will set the real mb_type
         mb_type |= MB_TYPE_L0L1 | MB_TYPE_DIRECT2 | MB_TYPE_SKIP;
         if (sl->direct_spatial_mv_pred) {
-            fill_decode_neighbors(h, sl, mb_type);
-            fill_decode_caches(h, sl, mb_type); //FIXME check what is needed and what not ...
+            /* MBAFF has field/frame remapping the trimmed fill doesn't
+             * replicate, so it keeps the general-purpose pair. */
+            if (!FRAME_MBAFF(h)) {
+                fill_decode_neighbors_caches_bskip_direct(h, sl, mb_type);
+            } else {
+                fill_decode_neighbors(h, sl, mb_type);
+                fill_decode_caches(h, sl, mb_type); //FIXME check what is needed and what not ...
+            }
         }
         ff_h264_pred_direct_motion(h, sl, &mb_type);
         mb_type |= MB_TYPE_SKIP;
@@ -959,7 +1054,8 @@ static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
 
     write_back_motion(h, sl, mb_type);
     h->cur_pic.mb_type[mb_xy]      = mb_type;
-    h->cur_pic.qscale_table[mb_xy] = sl->qscale;
+    if (!h->avctx->motion_vectors_only)
+        h->cur_pic.qscale_table[mb_xy] = sl->qscale;
     h->slice_table[mb_xy]          = sl->slice_num;
     sl->prev_mb_skipped            = 1;
 }

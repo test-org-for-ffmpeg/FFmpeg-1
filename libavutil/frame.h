@@ -254,6 +254,13 @@ enum AVFrameSideDataType {
      * libavutil/tdrdi.h.
      */
     AV_FRAME_DATA_3D_REFERENCE_DISPLAYS,
+    /**
+     * Compact motion vectors, emitted instead of AV_FRAME_DATA_MOTION_VECTORS
+     * when the decoder is configured with motion_vectors_only=1.
+     * The data is an array of AVMotionVectorCompact defined in
+     * libavutil/motion_vector.h.
+     */
+    AV_FRAME_DATA_MOTION_VECTORS_COMPACT,
 };
 
 enum AVActiveFormatDescription {

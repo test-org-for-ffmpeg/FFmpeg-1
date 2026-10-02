@@ -124,6 +124,15 @@ static int add_sorted(H264Picture **sorted, H264Picture * const *src,
 
 static int mismatches_ref(const H264Context *h, const H264Picture *pic)
 {
+    /* Custom (MV-only fork): this mode allocates every picture as a 16x16
+     * stub (see alloc_picture in h264_slice.c), so the real frame geometry is
+     * not in f->width/height and
+     * this dimension check would reject every reference. The property it
+     * guards — that a reference's pixel buffer is layout-compatible with the
+     * current picture — is meaningless when no pixels are read. Reference
+     * *selection* itself is unaffected: it runs on POC/frame_num, not size. */
+    if (h->avctx->motion_vectors_only)
+        return 0;
     const AVFrame *f = pic->f;
     return (h->cur_pic_ptr->f->width  != f->width ||
             h->cur_pic_ptr->f->height != f->height ||

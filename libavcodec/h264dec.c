@@ -97,7 +97,10 @@ static void h264_er_decode_mb(void *opaque, int ref, int mv_dir, int mv_type,
                    pack16to32((*mv)[0][0][0], (*mv)[0][0][1]), 4);
     sl->mb_mbaff =
     sl->mb_field_decoding_flag = 0;
-    ff_h264_hl_decode_mb(h, &h->slice_ctx[0]);
+    
+    // Motion vectors already extracted during entropy decoding; Skip decoding
+    if (!h->avctx->motion_vectors_only)
+        ff_h264_hl_decode_mb(h, &h->slice_ctx[0]);
 }
 
 void ff_h264_draw_horiz_band(const H264Context *h, H264SliceContext *sl,
@@ -422,6 +425,11 @@ static av_cold int h264_decode_init(AVCodecContext *avctx)
     ff_h264_flush_change(h);
 
     if (h->enable_er < 0 && (avctx->active_thread_type & FF_THREAD_SLICE))
+        h->enable_er = 0;
+
+    // Disable error resilience in MV-only mode - pixel buffers are minimal
+    // and error concealment would write out of bounds
+    if (avctx->motion_vectors_only)
         h->enable_er = 0;
 
     if (h->enable_er && (avctx->active_thread_type & FF_THREAD_SLICE)) {
@@ -815,7 +823,10 @@ end:
     }
 #endif /* CONFIG_ERROR_RESILIENCE */
     /* clean up */
-    if (h->cur_pic_ptr && !h->droppable && h->has_slice) {
+    /* Droppable pictures report too — see ff_h264_field_end(). This is the
+     * path that covers frames abandoned on a decode error, which never reach
+     * field_end at all. */
+    if (h->cur_pic_ptr && h->has_slice) {
         ff_thread_report_progress(&h->cur_pic_ptr->tf, INT_MAX,
                                   h->picture_structure == PICT_BOTTOM_FIELD);
     }
@@ -963,12 +974,28 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
 
         *got_frame = 1;
 
+        /* h264_select_output_frame() can hand us a picture that another
+         * frame-thread is still decoding, and mb_type/motion_val are written
+         * top-to-bottom right up to the end. Reading them without waiting gave
+         * the last macroblock rows of ~3% of frames whatever the recycled pool
+         * tables still held, differently on every run. Field pictures are left
+         * alone: progress is reported per field and an unpaired field would
+         * never complete the second one. */
+        if (out->tf.progress && !out->field_picture)
+            ff_thread_await_progress(&out->tf, INT_MAX, 0);
+
         if (CONFIG_MPEGVIDEODEC) {
-            ff_print_debug_info2(h->avctx, dst,
-                                 out->mb_type,
-                                 out->qscale_table,
-                                 out->motion_val,
-                                 out->mb_width, out->mb_height, out->mb_stride, 1);
+            if (h->avctx->motion_vectors_only)
+                ff_print_debug_info2_optimized(h->avctx, dst,
+                                     out->mb_type,
+                                     out->motion_val,
+                                     out->mb_width, out->mb_height, out->mb_stride, 1);
+            else
+                ff_print_debug_info2(h->avctx, dst,
+                                     out->mb_type,
+                                     out->qscale_table,
+                                     out->motion_val,
+                                     out->mb_width, out->mb_height, out->mb_stride, 1);
         }
     }
 
@@ -1059,7 +1086,13 @@ static int h264_decode_frame(AVCodecContext *avctx, AVFrame *pict,
     }
 
     if (!(avctx->flags2 & AV_CODEC_FLAG2_CHUNKS) && (!h->cur_pic_ptr || !h->has_slice)) {
+        /* Custom: mv_skip_every_nth / mv_decode_every_nth
+         * drop whole pictures, so a packet legitimately produces no picture -
+         * the same situation skip_frame is already exempted from here. Without
+         * this the decimated packets would each fail with "no frame!". */
         if (avctx->skip_frame >= AVDISCARD_NONREF ||
+            avctx->mv_skip_every_nth > 1 ||
+            avctx->mv_decode_every_nth > 1 ||
             buf_size >= 4 && !memcmp("Q264", buf, 4))
             return buf_size;
         av_log(avctx, AV_LOG_ERROR, "no frame!\n");

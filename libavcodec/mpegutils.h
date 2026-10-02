@@ -109,4 +109,13 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
                           const int8_t *qscale_table, int16_t (*const motion_val[2])[2],
                           int mb_width, int mb_height, int mb_stride, int quarter_sample);
 
+/**
+ * Optimized variant for motion_vectors_only mode — skips debug output
+ * and emits compact motion vectors (src + dst only, no motion_x/y).
+ */
+void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
+                          const uint32_t *mbtype_table,
+                          int16_t (*const motion_val[2])[2],
+                          int mb_width, int mb_height, int mb_stride, int quarter_sample);
+
 #endif /* AVCODEC_MPEGUTILS_H */

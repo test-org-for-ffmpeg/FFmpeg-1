@@ -129,6 +129,17 @@ static void release_unused_pictures(H264Context *h, int remove_current)
 
 static int alloc_scratch_buffers(H264SliceContext *sl, int linesize)
 {
+    if (sl->h264->avctx->motion_vectors_only) {
+        // Allocate minimal buffers - just enough to avoid NULL checks
+        av_fast_malloc(&sl->bipred_scratchpad,
+                       &sl->bipred_scratchpad_allocated, 64);
+        av_fast_malloc(&sl->edge_emu_buffer,
+                       &sl->edge_emu_buffer_allocated, 64);
+        av_fast_mallocz(&sl->top_borders[0], &sl->top_borders_allocated[0], 64);
+        av_fast_mallocz(&sl->top_borders[1], &sl->top_borders_allocated[1], 64);
+        return (sl->bipred_scratchpad && sl->edge_emu_buffer &&
+                sl->top_borders[0] && sl->top_borders[1]) ? 0 : AVERROR(ENOMEM);
+    }
     const H264Context *h = sl->h264;
     int alloc_size = FFALIGN(FFABS(linesize) + 32, 32);
 
@@ -191,6 +202,36 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
 
     av_assert0(!pic->f->data[0]);
 
+    // Motion vectors only mode - use threading system with minimal buffer
+    if (h->avctx->motion_vectors_only) {
+        // Set minimal dimensions to reduce memory usage
+        int orig_width = h->avctx->width;
+        int orig_height = h->avctx->height;
+        
+        // Temporarily set minimal size (must be multiple of 16 for H.264)
+        h->avctx->width = 16;
+        h->avctx->height = 16;
+        pic->f->width = 16;
+        pic->f->height = 16;
+        pic->f->format = AV_PIX_FMT_YUV420P;
+        
+        // Use threading system to properly set up private_ref
+        pic->tf.f = pic->f;
+        ret = ff_thread_get_ext_buffer(h->avctx, &pic->tf,
+                                       pic->reference ? AV_GET_BUFFER_FLAG_REF : 0);
+        
+        // Restore original dimensions
+        h->avctx->width = orig_width;
+        h->avctx->height = orig_height;
+        
+        if (ret < 0)
+            goto fail;
+            
+        // Skip all other pixel-related allocations
+        goto motion_vector_tables;
+    }
+
+    // Normal full decode path
     if (h->sei.common.lcevc.info) {
         HEVCSEILCEVC *lcevc = &h->sei.common.lcevc;
         ret = ff_frame_new_side_data_from_buf(h->avctx, pic->f, AV_FRAME_DATA_LCEVC, &lcevc->info);
@@ -217,13 +258,6 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
     if (ret < 0)
         goto fail;
 
-    if (h->decode_error_flags_pool) {
-        pic->decode_error_flags = av_refstruct_pool_get(h->decode_error_flags_pool);
-        if (!pic->decode_error_flags)
-            goto fail;
-        atomic_init(pic->decode_error_flags, 0);
-    }
-
     if (CONFIG_GRAY && !h->avctx->hwaccel && h->flags & AV_CODEC_FLAG_GRAY && pic->f->data[2]) {
         int h_chroma_shift, v_chroma_shift;
         av_pix_fmt_get_chroma_sub_sample(pic->f->format,
@@ -235,6 +269,15 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
             memset(pic->f->data[2] + pic->f->linesize[2]*i,
                    0x80, AV_CEIL_RSHIFT(pic->f->width, h_chroma_shift));
         }
+    }
+
+motion_vector_tables:
+    // Motion vector storage (ALWAYS ALLOCATE)
+    if (!h->avctx->motion_vectors_only && h->decode_error_flags_pool) {
+        pic->decode_error_flags = av_refstruct_pool_get(h->decode_error_flags_pool);
+        if (!pic->decode_error_flags)
+            goto fail;
+        atomic_init(pic->decode_error_flags, 0);
     }
 
     if (!h->qscale_table_pool) {
@@ -251,6 +294,7 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
     pic->mb_type      = pic->mb_type_base + 2 * h->mb_stride + 1;
     pic->qscale_table = pic->qscale_table_base + 2 * h->mb_stride + 1;
 
+    // Motion vector arrays (ALWAYS ALLOCATE)
     for (i = 0; i < 2; i++) {
         pic->motion_val_base[i] = av_refstruct_pool_get(h->motion_val_pool);
         pic->ref_index[i]       = av_refstruct_pool_get(h->ref_index_pool);
@@ -316,10 +360,8 @@ static void color_frame(AVFrame *frame, const int c[4])
         int bytes  = is_chroma ? AV_CEIL_RSHIFT(frame->width,  desc->log2_chroma_w) : frame->width;
         int height = is_chroma ? AV_CEIL_RSHIFT(frame->height, desc->log2_chroma_h) : frame->height;
         if (desc->comp[0].depth >= 9) {
-            if (bytes >= 1)
-                ((uint16_t*)dst)[0] = c[p];
-            if (bytes >= 2)
-                av_memcpy_backptr(dst + 2, 2, 2 * (bytes - 1));
+            ((uint16_t*)dst)[0] = c[p];
+            av_memcpy_backptr(dst + 2, 2, bytes - 2);
             dst += frame->linesize[p];
             for (int y = 1; y < height; y++) {
                 memcpy(dst, frame->data[p], 2*bytes);
@@ -577,7 +619,7 @@ static int h264_frame_start(H264Context *h)
 
     h->mb_aff_frame = h->ps.sps->mb_aff && (h->picture_structure == PICT_FRAME);
 
-    if (h->sei.common.unregistered.x264_build >= 0)
+    if (!h->avctx->motion_vectors_only && h->sei.common.unregistered.x264_build >= 0)
         h->x264_build = h->sei.common.unregistered.x264_build;
 
     assert(h->cur_pic_ptr->long_ref == 0);
@@ -1013,13 +1055,24 @@ static int h264_slice_header_init(H264Context *h)
     h->chroma_format_idc          = sps->chroma_format_idc;
     h->bit_depth_luma             = sps->bit_depth_luma;
 
+    /* Custom (MV-only fork): h264dsp is still initialised — it carries the
+     * loop-filter and IDCT
+     * pointers that ff_h264_hl_decode_mb() would call, and the extra argument
+     * makes it install no-op stubs instead of the real kernels (h264dsp.c), so
+     * any path that slips through calls a cheap nothing rather than writing
+     * into the 16x16 stub picture. The other four DSP families have no such
+     * stub layer and no caller left once hl_decode_mb is short-circuited, so
+     * they are simply not built: chroma/qpel MC, intra prediction and videodsp
+     * are pure pixel work. */
     ff_h264dsp_init(&h->h264dsp, sps->bit_depth_luma,
-                    sps->chroma_format_idc);
-    ff_h264chroma_init(&h->h264chroma, sps->bit_depth_chroma);
-    ff_h264qpel_init(&h->h264qpel, sps->bit_depth_luma);
-    ff_h264_pred_init(&h->hpc, AV_CODEC_ID_H264, sps->bit_depth_luma,
-                      sps->chroma_format_idc);
-    ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
+                    sps->chroma_format_idc, h->avctx->motion_vectors_only);
+    if(!h->avctx->motion_vectors_only) {
+        ff_h264chroma_init(&h->h264chroma, sps->bit_depth_chroma);
+        ff_h264qpel_init(&h->h264qpel, sps->bit_depth_luma);
+        ff_h264_pred_init(&h->hpc, AV_CODEC_ID_H264, sps->bit_depth_luma,
+                        sps->chroma_format_idc);
+        ff_videodsp_init(&h->vdsp, sps->bit_depth_luma);
+    }
 
     if (!HAVE_THREADS || !(h->avctx->active_thread_type & FF_THREAD_SLICE)) {
         ff_h264_slice_context_init(h, &h->slice_ctx[0]);
@@ -1171,6 +1224,12 @@ static int h264_init_ps(H264Context *h, const H264SliceContext *sl, int first_sl
 
 static int h264_export_frame_props(H264Context *h)
 {
+    if (h->avctx->motion_vectors_only) {
+        // Only export what's needed for reference frame management
+        // POC-based interlacing detection still needed for field pics
+        h->prev_interlaced_frame = FIELD_OR_MBAFF_PICTURE(h);
+        return 0;
+    }
     const SPS *sps = h->ps.sps;
     H264Picture *cur = h->cur_pic_ptr;
     AVFrame *out = cur->f;
@@ -1944,7 +2003,8 @@ static int h264_slice_init(H264Context *h, H264SliceContext *sl,
     if (ret < 0)
         return ret;
 
-    if (h->ps.pps->weighted_bipred_idc == 2 &&
+    if (!h->avctx->motion_vectors_only &&
+        h->ps.pps->weighted_bipred_idc == 2 &&
         sl->slice_type_nos == AV_PICTURE_TYPE_B) {
         implicit_weight_table(h, sl, -1);
         if (FRAME_MBAFF(h)) {
@@ -2142,6 +2202,32 @@ int ff_h264_queue_decode_slice(H264Context *h, const H2645NAL *nal)
         av_assert0(sl == h->slice_ctx);
 
     if (h->current_slice == 0 && !h->first_field) {
+        /* Custom: temporal decimation. Counted once per picture in decode
+         * order, here at the first slice of a new picture. IDR is always
+         * decoded so the stream keeps an anchor; the dropped ones lose their
+         * CABAC bins entirely.
+         *
+         * Two opposite knobs share this one counter, and must keep sharing it:
+         * incrementing mv_pic_index twice for a picture would make the two
+         * options interfere when both are set, and would change what
+         * mv_skip_every_nth alone means the moment the other is non-zero.
+         *
+         *   mv_skip_every_nth    drop every Nth, keep the rest - larger N is
+         *                        GENTLER (2 drops half, 30 drops a thirtieth)
+         *   mv_decode_every_nth  keep every Nth, drop the rest  - larger N is
+         *                        HARSHER (2 keeps half, 30 keeps a thirtieth)
+         *
+         * A picture is decoded only if it survives both tests. */
+        if ((h->avctx->mv_skip_every_nth > 1 || h->avctx->mv_decode_every_nth > 1) &&
+            h->nal_unit_type != H264_NAL_IDR_SLICE) {
+            int idx = h->mv_pic_index++;
+            if (h->avctx->mv_skip_every_nth > 1 &&
+                idx % h->avctx->mv_skip_every_nth == 0)
+                return 0;
+            if (h->avctx->mv_decode_every_nth > 1 &&
+                idx % h->avctx->mv_decode_every_nth != 0)
+                return 0;
+        }
         if (
             (h->avctx->skip_frame >= AVDISCARD_NONREF && !h->nal_ref_idc) ||
             (h->avctx->skip_frame >= AVDISCARD_BIDIR  && sl->slice_type_nos == AV_PICTURE_TYPE_B) ||
@@ -2525,6 +2611,21 @@ static void predict_field_decoding_flag(const H264Context *h, H264SliceContext *
  */
 static void decode_finish_row(const H264Context *h, H264SliceContext *sl)
 {
+    /* MV-only: report progress every 4th MB row instead of every row. The
+     * only consumer of row-level progress in this mode is
+     * await_reference_mb_row() (co-located MVs for direct-mode B MBs) — the
+     * pixel-reconstruction waits never run — and each report that finds
+     * sleepers pays a futex wake (VTune: pthread_cond_broadcast alone was
+     * ~19% of CPU at 16 threads). Correctness needs only monotonic progress
+     * plus the unconditional INT_MAX report in ff_h264_field_end(), which
+     * covers the trailing rows; a consumer waits at most 3 extra rows.
+     * mb_y advances by 2 under MBAFF, hence the shift — without it the mask
+     * would never fire on interlaced streams and rows would only complete at
+     * field end. ponytail: 4 is unmeasured-optimal; 8 was not tried. */
+    if (h->avctx->motion_vectors_only &&
+        ((sl->mb_y >> FRAME_MBAFF(h)) & 3) != 3)
+        return;
+
     int top            = 16 * (sl->mb_y      >> FIELD_PICTURE(h));
     int pic_height     = 16 *  h->mb_height >> FIELD_PICTURE(h);
     int height         =  16      << FRAME_MBAFF(h);
@@ -2545,7 +2646,8 @@ static void decode_finish_row(const H264Context *h, H264SliceContext *sl)
         top    = 0;
     }
 
-    ff_h264_draw_horiz_band(h, sl, top, height);
+    if(!h->avctx->motion_vectors_only)
+        ff_h264_draw_horiz_band(h, sl, top, height);
 
     if (h->droppable || h->er.error_occurred)
         return;
@@ -2626,17 +2728,20 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             ret = ff_h264_decode_mb_cabac(h, sl);
 
+            // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
-                ff_h264_hl_decode_mb(h, sl);
+                if (!h->avctx->motion_vectors_only)
+                    ff_h264_hl_decode_mb(h, sl);
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
 
                 ret = ff_h264_decode_mb_cabac(h, sl);
-
+                // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
-                    ff_h264_hl_decode_mb(h, sl);
+                    if (!h->avctx->motion_vectors_only)
+                        ff_h264_hl_decode_mb(h, sl);
                 sl->mb_y--;
             }
             eos = get_cabac_terminate(&sl->cabac);
@@ -2646,7 +2751,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x - 1,
                              sl->mb_y, ER_MB_END);
                 if (sl->mb_x >= lf_x_start)
-                    loop_filter(h, sl, lf_x_start, sl->mb_x + 1);
+                    // Skip loop filter for motion vectors only mode
+                    if (!h->avctx->motion_vectors_only)
+                        loop_filter(h, sl, lf_x_start, sl->mb_x + 1);
                 goto finish;
             }
             if (sl->cabac.bytestream > sl->cabac.bytestream_end + 2 )
@@ -2662,7 +2769,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             if (++sl->mb_x >= h->mb_width) {
-                loop_filter(h, sl, lf_x_start, sl->mb_x);
+                // Skip loop filter for motion vectors only mode
+                if (!h->avctx->motion_vectors_only)
+                    loop_filter(h, sl, lf_x_start, sl->mb_x);
                 sl->mb_x = lf_x_start = 0;
                 decode_finish_row(h, sl);
                 ++sl->mb_y;
@@ -2679,7 +2788,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x - 1,
                              sl->mb_y, ER_MB_END);
                 if (sl->mb_x > lf_x_start)
-                    loop_filter(h, sl, lf_x_start, sl->mb_x);
+                    // Skip loop filter for motion vectors only mode
+                    if (!h->avctx->motion_vectors_only)
+                        loop_filter(h, sl, lf_x_start, sl->mb_x);
                 goto finish;
             }
         }
@@ -2697,16 +2808,20 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             ret = ff_h264_decode_mb_cavlc(h, sl);
 
+            // Motion vectors already extracted during entropy decoding; Skip decoding
             if (ret >= 0)
-                ff_h264_hl_decode_mb(h, sl);
+                if (!h->avctx->motion_vectors_only)
+                    ff_h264_hl_decode_mb(h, sl);
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
                 ret = ff_h264_decode_mb_cavlc(h, sl);
 
+                // Motion vectors already extracted during entropy decoding; Skip decoding
                 if (ret >= 0)
-                    ff_h264_hl_decode_mb(h, sl);
+                    if (!h->avctx->motion_vectors_only)
+                        ff_h264_hl_decode_mb(h, sl);
                 sl->mb_y--;
             }
 
@@ -2719,7 +2834,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             if (++sl->mb_x >= h->mb_width) {
-                loop_filter(h, sl, lf_x_start, sl->mb_x);
+                // Skip loop filter for motion vectors only mode
+                if (!h->avctx->motion_vectors_only)
+                    loop_filter(h, sl, lf_x_start, sl->mb_x);
                 sl->mb_x = lf_x_start = 0;
                 decode_finish_row(h, sl);
                 ++sl->mb_y;
@@ -2755,7 +2872,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                     er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y,
                                  sl->mb_x - 1, sl->mb_y, ER_MB_END);
                     if (sl->mb_x > lf_x_start)
-                        loop_filter(h, sl, lf_x_start, sl->mb_x);
+                        // Skip loop filter for motion vectors only mode
+                        if (!h->avctx->motion_vectors_only) 
+                            loop_filter(h, sl, lf_x_start, sl->mb_x);
 
                     goto finish;
                 } else {
@@ -2833,17 +2952,20 @@ int ff_h264_execute_decode_slices(H264Context *h)
         if (h->postpone_filter) {
             h->postpone_filter = 0;
 
-            for (i = 0; i < context_count; i++) {
-                int y_end, x_end;
+            // Skip loop filter for motion vectors only mode
+            if (!h->avctx->motion_vectors_only) {
+                for (i = 0; i < context_count; i++) {
+                    int y_end, x_end;
 
-                sl = &h->slice_ctx[i];
-                y_end = FFMIN(sl->mb_y + 1, h->mb_height);
-                x_end = (sl->mb_y >= h->mb_height) ? h->mb_width : sl->mb_x;
+                    sl = &h->slice_ctx[i];
+                    y_end = FFMIN(sl->mb_y + 1, h->mb_height);
+                    x_end = (sl->mb_y >= h->mb_height) ? h->mb_width : sl->mb_x;
 
-                for (j = sl->resync_mb_y; j < y_end; j += 1 + FIELD_OR_MBAFF_PICTURE(h)) {
-                    sl->mb_y = j;
-                    loop_filter(h, sl, j > sl->resync_mb_y ? 0 : sl->resync_mb_x,
-                                j == y_end - 1 ? x_end : h->mb_width);
+                    for (j = sl->resync_mb_y; j < y_end; j += 1 + FIELD_OR_MBAFF_PICTURE(h)) {
+                        sl->mb_y = j;
+                        loop_filter(h, sl, j > sl->resync_mb_y ? 0 : sl->resync_mb_x,
+                                    j == y_end - 1 ? x_end : h->mb_width);
+                    }
                 }
             }
         }

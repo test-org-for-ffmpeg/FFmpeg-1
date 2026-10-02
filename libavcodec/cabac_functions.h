@@ -141,6 +141,11 @@ static int av_noinline av_unused get_cabac_noinline(CABACContext *c, uint8_t * c
     return get_cabac_inline(c,state);
 }
 
+/* Measured 2026-08: forcing av_always_inline here removes the out-of-line
+ * get_cabac copies GCC creates in the MV-only h264_cabac.o (perf shows them
+ * at ~31% self), but wall time does NOT improve (t1 2.004s -> 2.038s on the
+ * MCTTR benchmark) — that 31% is the bin-decode work itself, not call
+ * overhead. Left non-inline on purpose; don't retry without new evidence. */
 static int av_unused get_cabac(CABACContext *c, uint8_t * const state){
     return get_cabac_inline(c,state);
 }
