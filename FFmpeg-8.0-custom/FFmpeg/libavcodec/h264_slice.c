@@ -2228,13 +2228,6 @@ int ff_h264_queue_decode_slice(H264Context *h, const H2645NAL *nal)
                 idx % h->avctx->mv_decode_every_nth != 0)
                 return 0;
         }
-        /* Custom: mv_min_frame_bytes - a tiny non-IDR access unit is (on a
-         * static scene) an all-skip picture with no motion worth extracting.
-         * After the counter above, so it never shifts the every-Nth phase. */
-        if (h->avctx->mv_min_frame_bytes > 0 &&
-            h->nal_unit_type != H264_NAL_IDR_SLICE &&
-            h->mv_au_bytes < h->avctx->mv_min_frame_bytes)
-            return 0;
         if (
             (h->avctx->skip_frame >= AVDISCARD_NONREF && !h->nal_ref_idc) ||
             (h->avctx->skip_frame >= AVDISCARD_BIDIR  && sl->slice_type_nos == AV_PICTURE_TYPE_B) ||

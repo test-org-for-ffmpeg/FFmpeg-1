@@ -448,45 +448,19 @@ typedef struct AVCodecContext {
     int mv_l0_only;
 
     /**
-     * Custom: spatial thinning. Divide the picture into mv_grid x mv_grid pixel
-     * cells and export at most one motion vector per cell per picture - the
-     * first one the decoder reaches, among those surviving mv_min_size and the
-     * region filter. 0 disables it and exports every vector.
-     *
-     * This replaced an earlier "every Nth vector in decode order" filter, which
-     * sampled by the decoder's macroblock walk and so clustered arbitrarily.
-     * Cells give an evenly spread field instead, which is what a fixed camera
-     * wants: uniform coverage of the scene rather than a raster-order subset.
-     *
-     * Still an export-time filter: it shrinks output, it does not save decode
-     * time. Only mv_skip_every_nth / skip_frame do that.
-     */
-    int mv_grid;
-
-    /**
-     * Custom: drop motion vectors whose displacement is shorter than this many
-     * whole pixels, i.e. keep only those with hypot(dst-src) >= mv_min_size.
-     * 0 disables the filter and exports every vector. Applied before
-     * mv_grid.
-     */
-    int mv_min_size;
-
-    /**
      * Custom: skip every Nth picture, counted in decode order, dropping it
      * before any entropy decoding happens and decoding all the others. 0 or 1
      * decodes every picture. IDR pictures are always decoded so the stream
      * stays anchored.
      *
      * So 2 drops half the pictures, 3 drops a third, 4 a quarter: the trim gets
-     * *gentler* as N rises, the opposite of the mv_grid vector filter. That is
-     * deliberate. A skipped picture cannot be reconstructed afterwards -
-     * interpolating one from its decoded neighbours measured a median error
-     * larger than the median motion itself - so the useful range here is a mild
-     * trim, not aggressive decimation.
+     * *gentler* as N rises. That is deliberate. A skipped picture cannot be
+     * reconstructed afterwards - interpolating one from its decoded neighbours
+     * measured a median error larger than the median motion itself - so the
+     * useful range here is a mild trim, not aggressive decimation.
      *
-     * Unlike mv_grid / mv_min_size (which filter already-decoded vectors and so
-     * cost full decode time), this genuinely reduces work: a skipped picture
-     * has none of its CABAC bins consumed.
+     * This genuinely reduces work: a skipped picture has none of its CABAC
+     * bins consumed.
      *
      * Safe for I/P motion vectors, which H.264 predicts from spatial
      * neighbours within the same slice. B slices using temporal direct mode
@@ -2003,29 +1977,6 @@ typedef struct AVCodecContext {
      */
     AVFrameSideData  **decoded_side_data;
     int             nb_decoded_side_data;
-
-    /**
-     * Custom: content-adaptive temporal decimation - drop every non-IDR H.264
-     * picture whose coded access unit, i.e. the AVPacket handed to the
-     * decoder, is smaller than this many bytes. 0 disables it. H.264 only for
-     * now: the HEVC decoder's every-Nth drop path corrupts the heap in the
-     * Rust extractors, and this would share it.
-     *
-     * On a fixed camera a still picture codes as a tiny all-skip P frame, so a
-     * byte threshold drops the idle pictures and keeps the ones that carry
-     * motion, where mv_skip_every_nth / mv_decode_every_nth drop blindly. Same
-     * mechanism as those two: the picture is withheld before any entropy
-     * decoding, so it genuinely saves time, and it composes with them and with
-     * skip_frame - a picture is decoded only if it survives every test. It is
-     * checked after the every-Nth counter, so enabling it does not shift the
-     * every-Nth phase. edge264's extractor (method 8) applies the same rule to
-     * the same demuxed packet size, so both drop identical pictures.
-     *
-     * Declared here at the end of the struct rather than beside the other
-     * custom mv_* fields so that no existing field moves: the Rust extractors
-     * write some fields (thread_count) directly through bindgen offsets.
-     */
-    int mv_min_frame_bytes;
 } AVCodecContext;
 
 /**

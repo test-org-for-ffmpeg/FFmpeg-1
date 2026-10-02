@@ -22,107 +22,10 @@
 #define AVCODEC_MPEGUTILS_H
 
 #include <stdint.h>
-#include <string.h>
 
-#include "libavutil/attributes.h"
 #include "libavutil/frame.h"
 
 #include "avcodec.h"
-
-/**
- * Custom (MV-only fork): shared post-filters applied to every exported motion
- * vector, so h264/mpeg4 (mpegutils.c) and hevc (hevc/hevcdec.c) decimate and
- * threshold identically. Driven by the `mv_min_size` / `mv_grid`
- * AVOptions; both default to 0, which keeps the pre-filter behaviour exactly.
- *
- * The size threshold runs first and the spatial grid second, so a cell is
- * claimed by a vector that actually passed the threshold - otherwise a
- * sub-threshold vector could occupy the cell and suppress the real one behind
- * it.
- */
-
-/** Grid bitmap capacity: 8 KB covers 4K at mv_grid=8 or 1080p at mv_grid=4.
- *  Beyond that the grid simply stops thinning (it never drops a vector it
- *  cannot account for), which is the safe direction to fail in. */
-#define FF_MV_GRID_MAX_CELLS 65536
-
-typedef struct FFMvFilter {
-    /** Drop vectors whose displacement is shorter than this, in whole pixels.
-     *  0 disables the threshold. */
-    int min_size;
-    /** Cell size in luma pixels for spatial thinning; 0 disables it. */
-    int grid;
-    /** Cells per row, and total cells, derived from the picture size. */
-    int grid_cols, grid_cells;
-    /** One bit per cell: set once that cell has exported a vector. */
-    uint8_t grid_seen[FF_MV_GRID_MAX_CELLS / 8];
-} FFMvFilter;
-
-/**
- * @param width,height picture size in luma samples, for the grid geometry.
- */
-static av_always_inline void ff_mv_filter_init(FFMvFilter *f,
-                                               const AVCodecContext *avctx,
-                                               int width, int height)
-{
-    f->min_size  = avctx->mv_min_size;
-    f->grid      = avctx->mv_grid;
-    f->grid_cols = 0;
-    f->grid_cells = 0;
-    if (f->grid > 0 && width > 0 && height > 0) {
-        int cols = (width  + f->grid - 1) / f->grid;
-        int rows = (height + f->grid - 1) / f->grid;
-        if (cols > 0 && rows > 0 && (int64_t)cols * rows <= FF_MV_GRID_MAX_CELLS) {
-            f->grid_cols  = cols;
-            f->grid_cells = cols * rows;
-            /* Only the used prefix, not the whole 8 KB. */
-            memset(f->grid_seen, 0, (size_t)(f->grid_cells + 7) / 8);
-        } else {
-            f->grid = 0; /* too fine for the bitmap - thin nothing */
-        }
-    }
-}
-
-/**
- * @return 1 to keep the vector, 0 to drop it.
- *
- * Compares squared lengths to avoid a sqrt per vector; `mv_min_size` is capped
- * at INT16_MAX by its AVOption so min_size*min_size cannot overflow int.
- */
-/**
- * @param cur_x,cur_y the block's position in the CURRENT picture, which the
- *        spatial grid buckets on. Callers must pass the right endpoint:
- *        mpegutils puts the current-picture centre in dst, hevcdec in src.
- */
-static av_always_inline int ff_mv_filter_keep(FFMvFilter *f,
-                                              int src_x, int src_y,
-                                              int dst_x, int dst_y,
-                                              int cur_x, int cur_y)
-{
-    if (f->min_size > 0) {
-        const int dx = dst_x - src_x;
-        const int dy = dst_y - src_y;
-        if (dx * dx + dy * dy < f->min_size * f->min_size)
-            return 0;
-    }
-    /* One vector per cell: the first to reach an unclaimed cell wins, so the
-     * kept field is spread over the picture instead of following the decoder's
-     * macroblock walk. */
-    if (f->grid > 0 && f->grid_cells > 0) {
-        const int cx = cur_x / f->grid;
-        const int cy = cur_y / f->grid;
-        if (cx >= 0 && cy >= 0 && cx < f->grid_cols) {
-            const int idx = cy * f->grid_cols + cx;
-            if (idx >= 0 && idx < f->grid_cells) {
-                const int byte = idx >> 3, bit = 1 << (idx & 7);
-                if (f->grid_seen[byte] & bit)
-                    return 0;
-                f->grid_seen[byte] |= bit;
-            }
-        }
-    }
-    return 1;
-}
 
 /* picture type */
 #define PICT_TOP_FIELD     1

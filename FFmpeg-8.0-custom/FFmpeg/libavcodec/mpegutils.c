@@ -45,13 +45,11 @@
 static av_always_inline int add_mb(AVMotionVector *mb, uint32_t mb_type,
                   int dst_x, int dst_y,
                   int motion_x, int motion_y, int motion_scale,
-                  int direction, FFMvFilter *flt)
+                  int direction)
 {
     int src_x = dst_x + motion_x / motion_scale;
     int src_y = dst_y + motion_y / motion_scale;
     if (src_x == dst_x && src_y == dst_y) // sub-pel motion that still truncates to zero displacement
-        return 0;
-    if (!ff_mv_filter_keep(flt, src_x, src_y, dst_x, dst_y, dst_x, dst_y)) // mv_min_size / mv_grid
         return 0;
     mb->w = IS_8X8(mb_type) || IS_8X16(mb_type) ? 8 : 16;
     mb->h = IS_8X8(mb_type) || IS_16X8(mb_type) ? 8 : 16;
@@ -70,13 +68,11 @@ static av_always_inline int add_mb(AVMotionVector *mb, uint32_t mb_type,
 static av_always_inline int add_mb_compact(AVMotionVectorCompact *mb,
                   int dst_x, int dst_y,
                   int motion_x, int motion_y, int motion_scale,
-                  int direction, FFMvFilter *flt)
+                  int direction)
 {
     int src_x = dst_x + motion_x / motion_scale;
     int src_y = dst_y + motion_y / motion_scale;
     if (src_x == dst_x && src_y == dst_y) // sub-pel motion that still truncates to zero displacement
-        return 0;
-    if (!ff_mv_filter_keep(flt, src_x, src_y, dst_x, dst_y, dst_x, dst_y)) // mv_min_size / mv_grid
         return 0;
     mb->src_x   = src_x;
     mb->src_y   = src_y;
@@ -202,9 +198,6 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
         const int mv_sample_log2 = is_h264 ? 2 : 1;
         const int mv_stride      = (mb_width << mv_sample_log2) + !is_h264;
         int mb_x, mb_y, mbcount = 0;
-        FFMvFilter flt;
-
-        ff_mv_filter_init(&flt, avctx, mb_width * 16, mb_height * 16);
 
         /* size is width * height * 2 * 4 where 2 is for directions and 4 is
          * for the maximum number of MB (4 MB in case of IS_8x8) */
@@ -226,7 +219,7 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
                                       (mb_y * 2 + (i >> 1)) * mv_stride) << (mv_sample_log2 - 1);
                             int mx = motion_val[direction][xy][0];
                             int my = motion_val[direction][xy][1];
-                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction, &flt);
+                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
                         }
                     } else if (IS_16X8(mb_type)) {
                         for (i = 0; i < 2; i++) {
@@ -239,7 +232,7 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
                             if (IS_INTERLACED(mb_type))
                                 my *= 2;
 
-                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction, &flt);
+                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
                         }
                     } else if (IS_8X16(mb_type)) {
                         for (i = 0; i < 2; i++) {
@@ -252,7 +245,7 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
                             if (IS_INTERLACED(mb_type))
                                 my *= 2;
 
-                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction, &flt);
+                            mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
                         }
                     } else {
                           int sx = mb_x * 16 + 8;
@@ -260,7 +253,7 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict,
                           int xy = (mb_x + mb_y * mv_stride) << mv_sample_log2;
                           int mx = motion_val[direction][xy][0];
                           int my = motion_val[direction][xy][1];
-                          mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction, &flt);
+                          mbcount += add_mb(mvs + mbcount, mb_type, sx, sy, mx, my, scale, direction);
                     }
                 }
             }
@@ -355,9 +348,6 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
         const int mv_stride      = (mb_width << mv_sample_log2) + !is_h264;
         int mb_x, mb_y, mbcount = 0;
         const int compact        = avctx->motion_vectors_only;
-        FFMvFilter flt;
-
-        ff_mv_filter_init(&flt, avctx, mb_width * 16, mb_height * 16);
 
         // Compact path uses AVMotionVectorCompact (8 B) instead of AVMotionVector (~40 B)
         // when the decoder is in motion_vectors_only mode.
@@ -384,10 +374,10 @@ void ff_print_debug_info2_optimized(AVCodecContext *avctx, AVFrame *pict,
 #define ADD_MB(sx_, sy_, mx_, my_) do {                                              \
     if (compact)                                                                     \
         mbcount += add_mb_compact(mvs_compact + mbcount, (sx_), (sy_),               \
-                                  (mx_), (my_), scale, direction, &flt);             \
+                                  (mx_), (my_), scale, direction);                   \
     else                                                                             \
         mbcount += add_mb(mvs_full + mbcount, mb_type, (sx_), (sy_),                 \
-                          (mx_), (my_), scale, direction, &flt);                     \
+                          (mx_), (my_), scale, direction);                           \
 } while (0)
 
         for (mb_y = 0; mb_y < mb_height; mb_y++) {
