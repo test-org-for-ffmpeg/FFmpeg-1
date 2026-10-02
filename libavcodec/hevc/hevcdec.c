@@ -33,6 +33,7 @@
 #include "libavutil/internal.h"
 #include "libavutil/md5.h"
 #include "libavutil/mem.h"
+#include "libavutil/motion_vector.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/stereo3d.h"
@@ -3481,7 +3482,143 @@ static int verify_md5(HEVCContext *s, AVFrame *frame)
            s->poc, msg_buf);
 
     return err;
+}
+
+static av_always_inline int mvfield_match(const MvField *a, const MvField *b)
+{
+    return a->pred_flag   == b->pred_flag   &&
+           a->ref_idx[0]  == b->ref_idx[0]  &&
+           a->ref_idx[1]  == b->ref_idx[1]  &&
+           a->mv[0].x     == b->mv[0].x     &&
+           a->mv[0].y     == b->mv[0].y     &&
+           a->mv[1].x     == b->mv[1].x     &&
+           a->mv[1].y     == b->mv[1].y;
+}
+
+int ff_hevc_export_motion_vectors(HEVCContext *s, HEVCFrame *frame)
+{
+    const HEVCPPS *pps = frame->pps;
+    const HEVCSPS *sps = pps->sps;
+    const int min_pu_size   = 1 << sps->log2_min_pu_size;
+    const int min_pu_width  = sps->min_pu_width;
+    const int min_pu_height = sps->min_pu_height;
+    const MvField *tab_mvf  = frame->tab_mvf;
+
+    const int max_pu_w = 255 / min_pu_size;
+    const int max_pu_h = 255 / min_pu_size;
+
+    AVFrameSideData *sd;
+    int num_mvs = 0;
+    int alloc   = min_pu_width * min_pu_height * 2;
+    AVMotionVector *mvs = NULL;
+
+    if (!tab_mvf)
+        return 0;
+
+    uint8_t *visited = av_mallocz(min_pu_width * min_pu_height);
+    if (!visited)
+        return AVERROR(ENOMEM);
+
+    mvs = av_malloc_array(alloc, sizeof(*mvs));
+    if (!mvs) {
+        av_free(visited);
+        return AVERROR(ENOMEM);
     }
+
+    for (int y = 0; y < min_pu_height; y++) {
+        for (int x = 0; x < min_pu_width; x++) {
+            if (visited[y * min_pu_width + x])
+                continue;
+
+            const MvField *mvf = &tab_mvf[y * min_pu_width + x];
+
+            /* Skip intra-predicted or empty PUs */
+            if (!(mvf->pred_flag & (PF_L0 | PF_L1))) {
+                visited[y * min_pu_width + x] = 1;
+                continue;
+            }
+
+            /* Expand right */
+            int w = 1;
+            while (w < max_pu_w &&
+                   x + w < min_pu_width &&
+                   !visited[y * min_pu_width + x + w] &&
+                   mvfield_match(&tab_mvf[y * min_pu_width + x + w], mvf))
+                w++;
+
+            /* Expand down */
+            int h = 1;
+            while (h < max_pu_h && y + h < min_pu_height) {
+                int row_ok = 1;
+                for (int xx = x; xx < x + w && row_ok; xx++) {
+                    row_ok = !visited[(y + h) * min_pu_width + xx] &&
+                        mvfield_match(&tab_mvf[(y + h) * min_pu_width + xx], mvf);
+                }
+                if (!row_ok) break;
+                h++;
+            }
+
+            for (int yy = y; yy < y + h; yy++)
+                for (int xx = x; xx < x + w; xx++)
+                    visited[yy * min_pu_width + xx] = 1;
+
+            int pixel_x = x * min_pu_size;
+            int pixel_y = y * min_pu_size;
+            int pixel_w = w * min_pu_size;
+            int pixel_h = h * min_pu_size;
+
+            if (pixel_w <= 0 || pixel_w > 255 ||
+                pixel_h <= 0 || pixel_h > 255)
+                continue;
+
+            for (int dir = 0; dir < 2; dir++) {
+                if (!(mvf->pred_flag & (1 << dir)))
+                    continue;
+
+                av_assert0(num_mvs < alloc);
+                AVMotionVector *out = &mvs[num_mvs++];
+                out->w        = (uint8_t)pixel_w;
+                out->h        = (uint8_t)pixel_h;
+                out->src_x    = pixel_x + pixel_w / 2;
+                out->src_y    = pixel_y + pixel_h / 2;
+                out->dst_x    = out->src_x + (mvf->mv[dir].x >> 2);
+                out->dst_y    = out->src_y + (mvf->mv[dir].y >> 2);
+                /* Raw quarter-pel MV components */
+                out->motion_x = mvf->mv[dir].x;
+                out->motion_y = mvf->mv[dir].y;
+                out->motion_scale = 4; /* HEVC uses quarter-pel precision */
+                out->flags    = 0;
+
+                /*
+                 * source: negative = L0 (past/backward), positive = L1 (future/forward)
+                 * Use the signed reference index convention matching H.264 export.
+                 */
+                out->source = (dir == 0) ? -(mvf->ref_idx[dir] + 1)
+                                         :  (mvf->ref_idx[dir] + 1);
+            }
+        }
+    }
+    av_free(visited);
+
+    if (!num_mvs) {
+        av_free(mvs);
+        return 0;
+    }
+
+    sd = av_frame_new_side_data(frame->f, AV_FRAME_DATA_MOTION_VECTORS,
+                                num_mvs * sizeof(AVMotionVector));
+    if (!sd) {
+        av_free(mvs);
+        return AVERROR(ENOMEM);
+    }
+    memcpy(sd->data, mvs, num_mvs * sizeof(AVMotionVector));
+    av_free(mvs);
+
+    av_log(s->avctx, AV_LOG_DEBUG,
+           "MV export: POC=%d, merged MVs=%d\n", s->poc, num_mvs);
+
+    return 0;
+}
 
 static int hevc_frame_end(HEVCContext *s, HEVCLayerContext *l)
 {

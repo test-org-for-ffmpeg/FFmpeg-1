@@ -308,6 +308,11 @@ int ff_hevc_output_frames(HEVCContext *s,
             int output = !discard && (layers_active_output & (1 << min_layer));
 
             if (output) {
+                if (s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_MVS) {
+                    ret = ff_hevc_export_motion_vectors(s, frame);
+                    if (ret < 0)
+                        return ret;
+                }
                 if (frame->flags & HEVC_FRAME_FLAG_CORRUPT)
                     f->flags |= AV_FRAME_FLAG_CORRUPT;
                 f->pkt_dts = s->pkt_dts;
