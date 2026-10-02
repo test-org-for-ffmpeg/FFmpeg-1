@@ -451,6 +451,9 @@ typedef struct H264Context {
 
     /* Custom: pictures seen in decode order, for mv_skip_every_nth. */
     int mv_pic_index;
+    /* Custom: size of the packet being decoded, for mv_min_frame_bytes. Set
+     * per packet in h264_decode_frame, so frame threads need no syncing. */
+    int mv_au_bytes;
 
     int has_slice;          ///< slice NAL is found in the packet, set by decode_nal_units, its state does not need to be preserved outside h264_decode_frame()
 

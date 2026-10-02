@@ -2003,6 +2003,29 @@ typedef struct AVCodecContext {
      */
     AVFrameSideData  **decoded_side_data;
     int             nb_decoded_side_data;
+
+    /**
+     * Custom: content-adaptive temporal decimation - drop every non-IDR H.264
+     * picture whose coded access unit, i.e. the AVPacket handed to the
+     * decoder, is smaller than this many bytes. 0 disables it. H.264 only for
+     * now: the HEVC decoder's every-Nth drop path corrupts the heap in the
+     * Rust extractors, and this would share it.
+     *
+     * On a fixed camera a still picture codes as a tiny all-skip P frame, so a
+     * byte threshold drops the idle pictures and keeps the ones that carry
+     * motion, where mv_skip_every_nth / mv_decode_every_nth drop blindly. Same
+     * mechanism as those two: the picture is withheld before any entropy
+     * decoding, so it genuinely saves time, and it composes with them and with
+     * skip_frame - a picture is decoded only if it survives every test. It is
+     * checked after the every-Nth counter, so enabling it does not shift the
+     * every-Nth phase. edge264's extractor (method 8) applies the same rule to
+     * the same demuxed packet size, so both drop identical pictures.
+     *
+     * Declared here at the end of the struct rather than beside the other
+     * custom mv_* fields so that no existing field moves: the Rust extractors
+     * write some fields (thread_count) directly through bindgen offsets.
+     */
+    int mv_min_frame_bytes;
 } AVCodecContext;
 
 /**
